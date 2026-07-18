@@ -81,13 +81,13 @@ Terminal optional. Two other doors:
 
 **Drag and drop.** Drag any manuscript (or several at once) onto `featherpress_drop.bat` in File Explorer. Everything converts with defaults (dark theme, all formats, title from the filename) and the output folder opens itself. If something fails, the window stays open so you can read why.
 
-**The GUI.** Double-click `featherpress_gui.bat`. A small dark window: choose your file, optionally set title and author, pick a theme, press Convert. The output folder opens when it finishes. Built on tkinter, which ships with Python, so there is nothing extra to install.
+**The GUI.** Double-click `featherpress_gui.bat`. A small dark window: choose your file, optionally set title and author, pick a theme and a narration voice (the "Hear sample" button speaks a preview line in the chosen voice before you commit to a whole book), press Convert. The output folder opens when it finishes. Built on tkinter, which ships with Python, so there is nothing extra to install.
 
 Both use the exact same pipeline underneath; the terminal remains the power-user door for custom output paths and format selection.
 
 ## Version history
 
-Current version: **1.2.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
+Current version: **1.3.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
 The GUI shows its version in the header, and its "What's new" button prints the latest changes.
 `python featherpress.py --version` does the same on the command line.
 

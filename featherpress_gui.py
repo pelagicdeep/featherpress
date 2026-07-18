@@ -14,11 +14,37 @@ try:
 except Exception:
     VERSION = "unknown"
 
+# curated Piper voices: (name, short description)
+VOICES = [
+    ("en_US-lessac-medium", "US female, warm (default)"),
+    ("en_US-amy-medium", "US female, bright"),
+    ("en_US-hfc_female-medium", "US female, clear"),
+    ("en_US-hfc_male-medium", "US male, clear"),
+    ("en_US-joe-medium", "US male, low"),
+    ("en_US-ryan-high", "US male, crisp"),
+    ("en_GB-alba-medium", "British female"),
+    ("en_GB-alan-medium", "British male"),
+]
+
+
+def play_wav(path):
+    """Play a wav without blocking. Windows: winsound; else afplay/aplay."""
+    import sys
+    if sys.platform == "win32":
+        import winsound
+        winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC)
+    else:
+        import subprocess
+        player = "afplay" if sys.platform == "darwin" else "aplay"
+        subprocess.Popen([player, str(path)], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+
 # ---------------------------------------------------------------------------
 # Core conversion, GUI-independent and testable
 # ---------------------------------------------------------------------------
 
-def convert(input_path, outdir, title, author, theme, formats, status_cb):
+def convert(input_path, outdir, title, author, theme, formats, status_cb,
+            voice="en_US-lessac-medium"):
     """Run the pipeline. status_cb(str) receives progress lines.
     Returns the output directory Path on success, raises on failure."""
     import featherpress as fp
@@ -53,7 +79,7 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb):
     if "audio" in formats:
         status_cb("Voicing audiobook (a full book can take a while) ...")
         out = fp.build_audio(blocks, outdir / f"{stem}_audiobook", title, author,
-                             progress_cb=status_cb)
+                             voice_name=voice, progress_cb=status_cb)
         status_cb(f"Audiobook written: {out.name}")
     status_cb("Done.")
     return outdir
@@ -147,6 +173,39 @@ def main():
                        bg=BG, fg=INK, selectcolor=PANEL,
                        activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
 
+    # voice (for the audiobook format)
+    vrow = tk.Frame(frame, bg=BG); vrow.pack(fill="x", pady=(6, 0))
+    styled_label(vrow, "Voice:").pack(side="left")
+    voice_labels = [f"{name}  ({desc})" for name, desc in VOICES]
+    voice_var = tk.StringVar(value=voice_labels[0])
+    voice_box = ttk.Combobox(vrow, textvariable=voice_var, values=voice_labels,
+                             state="readonly", width=42)
+    voice_box.pack(side="left", padx=(6, 8))
+
+    def picked_voice():
+        return VOICES[voice_box.current() if voice_box.current() >= 0 else 0][0]
+
+    def hear_sample():
+        name = picked_voice()
+        hear_btn.configure(state="disabled", text="Loading...")
+        def task():
+            try:
+                import featherpress as fp
+                sample = fp.voice_sample(name)  # downloads the voice on first use
+                play_wav(sample)
+                root.after(0, log, f"Playing sample: {name}")
+            except Exception as e:
+                root.after(0, log, f"Could not play sample: {e}")
+            finally:
+                root.after(0, lambda: hear_btn.configure(state="normal", text="Hear sample"))
+        root.after(0, log, f"Preparing {name} (first listen downloads ~60 MB) ...")
+        threading.Thread(target=task, daemon=True).start()
+
+    hear_btn = tk.Button(vrow, text="Hear sample", command=hear_sample,
+                         bg=PANEL, fg=INK, activebackground=PANEL, activeforeground=INK,
+                         relief="flat", padx=10, pady=2)
+    hear_btn.pack(side="left")
+
     # formats
     frow = tk.Frame(frame, bg=BG); frow.pack(fill="x", pady=(6, 0))
     styled_label(frow, "Formats:").pack(side="left")
@@ -235,7 +294,8 @@ def main():
         def task():
             try:
                 convert(state["file"], state["outdir"], title_e.get(), author_e.get(),
-                        theme_var.get(), formats, lambda m: root.after(0, log, m))
+                        theme_var.get(), formats, lambda m: root.after(0, log, m),
+                        voice=picked_voice())
                 root.after(0, open_output)
             except ModuleNotFoundError as e:
                 root.after(0, log, f"Missing piece: {e.name}. Press the Install/update requirements button, then Convert again.")

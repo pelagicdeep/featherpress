@@ -4,6 +4,15 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-07-17
+
+### Added
+- Voice picker in the GUI: a dropdown of eight curated English Piper voices
+  (US and British, male and female) with a "Hear sample" button that speaks
+  a short preview line in the chosen voice. Samples are synthesized once and
+  cached in `voices/samples/`; the first listen of a new voice downloads its
+  model (~60 MB). The chosen voice is used for the audiobook conversion.
+
 ## [1.2.0] - 2026-07-17
 
 ### Added

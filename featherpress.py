@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -887,6 +887,23 @@ def _load_voice(voice_name: str):
         print(f"    downloading voice {voice_name} (one time, ~60 MB) ...")
         download_voice(voice_name, VOICE_DIR)
     return PiperVoice.load(onnx)
+
+
+SAMPLE_TEXT = ("This is the voice of Featherpress. "
+               "A quiet story, read gently, one page at a time.")
+
+
+def voice_sample(voice_name: str) -> Path:
+    """Synthesize (once) and return a short preview wav for a voice."""
+    import wave
+    samples = VOICE_DIR / "samples"
+    samples.mkdir(parents=True, exist_ok=True)
+    out = samples / f"{voice_name}.wav"
+    if not out.exists():
+        voice = _load_voice(voice_name)
+        with wave.open(str(out), "wb") as wf:
+            voice.synthesize_wav(SAMPLE_TEXT, wf)
+    return out
 
 
 def _ffmeta_escape(text: str) -> str:
