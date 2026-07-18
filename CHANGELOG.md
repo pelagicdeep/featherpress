@@ -4,6 +4,27 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-07-18
+
+### Added
+- Edge neural voices are now the default audiobook engine (via the free
+  `edge-tts` package): natural prosody, much better pronunciation of foreign
+  words, 300+ voices across dozens of languages. Needs internet while
+  voicing; Piper remains as the fully offline engine, chosen automatically
+  when the voice name looks like `en_US-lessac-medium`.
+- Full voice-picker window in the GUI: the entire Edge catalog plus the
+  offline Piper voices, with search, language and gender filters, per-voice
+  samples, and double-click to select.
+- Speech speed control: `--rate` on the CLI (percent, negative = slower)
+  and a speed slider in the GUI. Works with both engines and is applied to
+  voice samples too.
+- Without ffmpeg, Edge voicing now writes per-chapter numbered `.mp3` files.
+- README pointer to ElevenReader for studio-grade narration of the
+  Featherpress EPUB.
+
+### Changed
+- Default voice is now `en-US-AndrewMultilingualNeural`.
+
 ## [1.3.0] - 2026-07-17
 
 ### Added

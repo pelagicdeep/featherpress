@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -852,11 +852,17 @@ def build_tts(blocks, out_path: Path, title: str, author: str):
 
 
 # ---------------------------------------------------------------------------
-# Output 4: voiced audiobook (Piper TTS)
+# Output 4: voiced audiobook (Edge TTS online, Piper TTS offline)
 # ---------------------------------------------------------------------------
 
-DEFAULT_VOICE = "en_US-lessac-medium"
+DEFAULT_VOICE = "en-US-AndrewMultilingualNeural"   # Edge neural voice
+DEFAULT_PIPER_VOICE = "en_US-lessac-medium"        # offline fallback
 VOICE_DIR = SCRIPT_DIR / "voices"
+
+
+def is_piper_voice(name: str) -> bool:
+    """Piper voices look like en_US-lessac-medium; Edge like en-US-AriaNeural."""
+    return bool(re.match(r"^[a-z]+_[A-Z]{2}-", name))
 
 
 def _find_ffmpeg():
@@ -889,60 +895,145 @@ def _load_voice(voice_name: str):
     return PiperVoice.load(onnx)
 
 
+def _synth_piper(voice, text: str, out_path: Path, rate: int = 0):
+    """Piper synthesis to wav. rate is percent, negative = slower."""
+    import wave
+    syn_config = None
+    if rate:
+        try:
+            from piper import SynthesisConfig
+            syn_config = SynthesisConfig(length_scale=1.0 / (1.0 + rate / 100.0))
+        except (ImportError, TypeError):
+            pass
+    with wave.open(str(out_path), "wb") as wf:
+        voice.synthesize_wav(text, wf, syn_config=syn_config)
+
+
+def _synth_edge(text: str, voice_name: str, out_path: Path, rate: int = 0):
+    """Edge TTS synthesis to mp3. Needs internet; rate as for Piper."""
+    try:
+        import edge_tts
+    except ImportError:
+        raise ValueError(
+            "Edge voices need the edge-tts package. Install it with: "
+            "python -m pip install edge-tts")
+    import asyncio
+
+    async def run():
+        com = edge_tts.Communicate(text, voice=voice_name, rate=f"{rate:+d}%")
+        await com.save(str(out_path))
+    asyncio.run(run())
+
+
+def list_edge_voices(refresh: bool = False):
+    """The Edge voice catalog: [{name, locale, gender}, ...], cached on disk."""
+    import json
+    cache = VOICE_DIR / "edge_voices.json"
+    if cache.exists() and not refresh:
+        try:
+            return json.loads(cache.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    import asyncio
+    import edge_tts
+    voices = asyncio.run(edge_tts.list_voices())
+    data = sorted(
+        ({"name": v["ShortName"], "locale": v["Locale"], "gender": v["Gender"]}
+         for v in voices), key=lambda v: v["name"])
+    VOICE_DIR.mkdir(exist_ok=True)
+    cache.write_text(json.dumps(data), encoding="utf-8")
+    return data
+
+
 SAMPLE_TEXT = ("This is the voice of Featherpress. "
                "A quiet story, read gently, one page at a time.")
 
 
-def voice_sample(voice_name: str) -> Path:
-    """Synthesize (once) and return a short preview wav for a voice."""
-    import wave
+def voice_sample(voice_name: str, rate: int = 0) -> Path:
+    """Synthesize (once) and return a short preview clip for a voice.
+    Returns a wav when possible (Piper always; Edge when ffmpeg can convert),
+    otherwise an mp3."""
     samples = VOICE_DIR / "samples"
     samples.mkdir(parents=True, exist_ok=True)
-    out = samples / f"{voice_name}.wav"
-    if not out.exists():
-        voice = _load_voice(voice_name)
-        with wave.open(str(out), "wb") as wf:
-            voice.synthesize_wav(SAMPLE_TEXT, wf)
-    return out
+    stem = f"{voice_name}_{rate:+d}"
+    if is_piper_voice(voice_name):
+        out = samples / f"{stem}.wav"
+        if not out.exists():
+            _synth_piper(_load_voice(voice_name), SAMPLE_TEXT, out, rate)
+        return out
+    wav, mp3 = samples / f"{stem}.wav", samples / f"{stem}.mp3"
+    if wav.exists():
+        return wav
+    if not mp3.exists():
+        _synth_edge(SAMPLE_TEXT, voice_name, mp3, rate)
+    ffmpeg = _find_ffmpeg()
+    if ffmpeg:
+        import subprocess
+        subprocess.run([ffmpeg, "-y", "-i", str(mp3), str(wav)],
+                       check=True, capture_output=True)
+        return wav
+    return mp3
 
 
 def _ffmeta_escape(text: str) -> str:
     return re.sub(r"([=;#\\\n])", r"\\\1", text)
 
 
+def _media_duration(path: Path, ffmpeg: str) -> float:
+    """Duration in seconds via the ffprobe that ships beside ffmpeg."""
+    import json
+    import subprocess
+    ffprobe = str(Path(ffmpeg).with_name(Path(ffmpeg).name.replace("ffmpeg", "ffprobe")))
+    p = subprocess.run(
+        [ffprobe, "-v", "quiet", "-show_format", "-of", "json", str(path)],
+        check=True, capture_output=True)
+    return float(json.loads(p.stdout)["format"]["duration"])
+
+
 def build_audio(blocks, out_path: Path, title: str, author: str,
-                voice_name: str = DEFAULT_VOICE, progress_cb=print) -> Path:
-    """Voice the manuscript into a real audiobook. Writes an .m4b with chapter
-    markers when ffmpeg is available, otherwise a single .wav."""
+                voice_name: str = DEFAULT_VOICE, rate: int = 0,
+                progress_cb=print) -> Path:
+    """Voice the manuscript into a real audiobook.
+
+    Edge voices (like en-US-AndrewMultilingualNeural) use Microsoft's neural
+    TTS over the network; Piper voices (like en_US-lessac-medium) run fully
+    offline. rate is a percent speed adjustment, negative = slower.
+    Writes an .m4b with chapter markers when ffmpeg is available; without
+    ffmpeg, Piper falls back to one .wav and Edge to per-chapter .mp3 files."""
     import subprocess
     import tempfile
     import wave
 
-    voice = _load_voice(voice_name)
+    piper = is_piper_voice(voice_name)
+    voice = _load_voice(voice_name) if piper else None
     chapters = tts_script(blocks, title, author)
+    ffmpeg = _find_ffmpeg()
 
     with tempfile.TemporaryDirectory(prefix="featherpress_audio_") as td:
         tdir = Path(td)
-        wavs = []
+        parts = []
         for i, (ch_title, lines) in enumerate(chapters):
             text = "\n".join(l for l in lines if l.strip())
-            wav_path = tdir / f"ch_{i:03d}.wav"
-            with wave.open(str(wav_path), "wb") as wf:
-                voice.synthesize_wav(text, wf)
-            with wave.open(str(wav_path), "rb") as wf:
-                dur = wf.getnframes() / wf.getframerate()
-            wavs.append((ch_title, wav_path, dur))
-            progress_cb(f"    voiced {i + 1}/{len(chapters)}: {ch_title[:46]} ({dur:.0f}s)")
+            part = tdir / (f"ch_{i:03d}.wav" if piper else f"ch_{i:03d}.mp3")
+            if piper:
+                _synth_piper(voice, text, part, rate)
+                with wave.open(str(part), "rb") as wf:
+                    dur = wf.getnframes() / wf.getframerate()
+            else:
+                _synth_edge(text, voice_name, part, rate)
+                dur = _media_duration(part, ffmpeg) if ffmpeg else 0.0
+            parts.append((ch_title, part, dur))
+            progress_cb(f"    voiced {i + 1}/{len(chapters)}: {ch_title[:46]}"
+                        + (f" ({dur:.0f}s)" if dur else ""))
 
-        ffmpeg = _find_ffmpeg()
         if ffmpeg:
             concat = tdir / "concat.txt"
             concat.write_text(
-                "".join(f"file '{w.as_posix()}'\n" for _, w, _ in wavs), encoding="utf-8")
+                "".join(f"file '{p.as_posix()}'\n" for _, p, _ in parts), encoding="utf-8")
             meta = [";FFMETADATA1", f"title={_ffmeta_escape(title)}",
                     f"artist={_ffmeta_escape(author or '')}"]
             t = 0.0
-            for ch_title, _, dur in wavs:
+            for ch_title, _, dur in parts:
                 meta += ["[CHAPTER]", "TIMEBASE=1/1000",
                          f"START={int(t * 1000)}", f"END={int((t + dur) * 1000)}",
                          f"title={_ffmeta_escape(ch_title)}"]
@@ -956,15 +1047,26 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
                 check=True, capture_output=True)
             return out
 
-        # no ffmpeg: stitch the chapter WAVs together losslessly instead
-        progress_cb("    ffmpeg not found: writing plain .wav without chapter marks")
-        out = out_path.with_suffix(".wav")
-        with wave.open(str(out), "wb") as dst:
-            for i, (_, w, _) in enumerate(wavs):
-                with wave.open(str(w), "rb") as src:
-                    if i == 0:
-                        dst.setparams(src.getparams())
-                    dst.writeframes(src.readframes(src.getnframes()))
+        if piper:
+            # no ffmpeg: stitch the chapter WAVs together losslessly instead
+            progress_cb("    ffmpeg not found: writing plain .wav without chapter marks")
+            out = out_path.with_suffix(".wav")
+            with wave.open(str(out), "wb") as dst:
+                for i, (_, p, _) in enumerate(parts):
+                    with wave.open(str(p), "rb") as src:
+                        if i == 0:
+                            dst.setparams(src.getparams())
+                        dst.writeframes(src.readframes(src.getnframes()))
+            return out
+
+        # no ffmpeg, Edge mp3s: keep one numbered mp3 per chapter
+        progress_cb("    ffmpeg not found: writing per-chapter mp3 files")
+        import shutil
+        out = out_path  # becomes a directory
+        out.mkdir(parents=True, exist_ok=True)
+        for i, (ch_title, p, _) in enumerate(parts):
+            safe = re.sub(r"[^\w\- ]+", "", ch_title)[:60].strip() or f"part {i}"
+            shutil.copy2(p, out / f"{i:03d} - {safe}.mp3")
         return out
 
 
@@ -1094,7 +1196,12 @@ def main():
                     help="Comma list of outputs: pdf,epub,tts,html,audio "
                          "(audio is opt-in; voicing a whole book takes a while)")
     ap.add_argument("--voice", default=DEFAULT_VOICE,
-                    help=f"Piper voice for the audiobook (default: {DEFAULT_VOICE})")
+                    help="Audiobook voice: an Edge neural voice like en-US-AriaNeural "
+                         "(online, natural) or a Piper voice like en_US-lessac-medium "
+                         f"(offline). Default: {DEFAULT_VOICE}")
+    ap.add_argument("--rate", type=int, default=0, metavar="PCT",
+                    help="Speech speed adjustment in percent; negative is slower "
+                         "(for example -15). Default: 0")
     ap.add_argument("--version", action="version", version=f"Featherpress {__version__}")
     ap.add_argument("--keep-front-matter", action="store_true",
                     help="Keep EPUB front matter (cover, copyright, contents pages) "
@@ -1134,7 +1241,7 @@ def main():
     if "audio" in wanted:
         print("  voicing audiobook ...")
         out = build_audio(blocks, outdir / f"{stem}_audiobook", title,
-                          args.author, args.voice)
+                          args.author, args.voice, args.rate)
         print(f"  AUDIO -> {out}")
     print("Done.")
 

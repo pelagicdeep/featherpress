@@ -14,29 +14,36 @@ try:
 except Exception:
     VERSION = "unknown"
 
-# curated Piper voices: (name, short description)
-VOICES = [
-    ("en_US-lessac-medium", "US female, warm (default)"),
-    ("en_US-amy-medium", "US female, bright"),
-    ("en_US-hfc_female-medium", "US female, clear"),
-    ("en_US-hfc_male-medium", "US male, clear"),
-    ("en_US-joe-medium", "US male, low"),
-    ("en_US-ryan-high", "US male, crisp"),
-    ("en_GB-alba-medium", "British female"),
-    ("en_GB-alan-medium", "British male"),
+# offline Piper voices, listed in the picker alongside the Edge catalog
+OFFLINE_VOICES = [
+    ("en_US-lessac-medium", "Female"),
+    ("en_US-amy-medium", "Female"),
+    ("en_US-hfc_female-medium", "Female"),
+    ("en_US-hfc_male-medium", "Male"),
+    ("en_US-joe-medium", "Male"),
+    ("en_US-ryan-high", "Male"),
+    ("en_GB-alba-medium", "Female"),
+    ("en_GB-alan-medium", "Male"),
 ]
 
+DEFAULT_VOICE = "en-US-AndrewMultilingualNeural"
 
-def play_wav(path):
-    """Play a wav without blocking. Windows: winsound; else afplay/aplay."""
+
+def play_media(path):
+    """Play a short clip without blocking."""
+    import os
     import sys
+    path = str(path)
     if sys.platform == "win32":
-        import winsound
-        winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC)
+        if path.lower().endswith(".wav"):
+            import winsound
+            winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+        else:
+            os.startfile(path)  # noqa: S606 - hand mp3s to the default player
     else:
         import subprocess
         player = "afplay" if sys.platform == "darwin" else "aplay"
-        subprocess.Popen([player, str(path)], stdout=subprocess.DEVNULL,
+        subprocess.Popen([player, path], stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
 
 # ---------------------------------------------------------------------------
@@ -44,7 +51,7 @@ def play_wav(path):
 # ---------------------------------------------------------------------------
 
 def convert(input_path, outdir, title, author, theme, formats, status_cb,
-            voice="en_US-lessac-medium"):
+            voice=DEFAULT_VOICE, rate=0):
     """Run the pipeline. status_cb(str) receives progress lines.
     Returns the output directory Path on success, raises on failure."""
     import featherpress as fp
@@ -79,7 +86,7 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb,
     if "audio" in formats:
         status_cb("Voicing audiobook (a full book can take a while) ...")
         out = fp.build_audio(blocks, outdir / f"{stem}_audiobook", title, author,
-                             voice_name=voice, progress_cb=status_cb)
+                             voice_name=voice, rate=rate, progress_cb=status_cb)
         status_cb(f"Audiobook written: {out.name}")
     status_cb("Done.")
     return outdir
@@ -101,8 +108,8 @@ def main():
     root = tk.Tk()
     root.title(f"Featherpress v{VERSION}")
     root.configure(bg=BG)
-    root.geometry("560x520")
-    root.minsize(480, 480)
+    root.geometry("560x600")
+    root.minsize(480, 560)
 
     state = {"file": None, "outdir": Path(__file__).resolve().parent / "output"}
 
@@ -173,37 +180,165 @@ def main():
                        bg=BG, fg=INK, selectcolor=PANEL,
                        activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
 
-    # voice (for the audiobook format)
+    # voice + speed (for the audiobook format)
+    voice_state = {"name": DEFAULT_VOICE}
     vrow = tk.Frame(frame, bg=BG); vrow.pack(fill="x", pady=(6, 0))
     styled_label(vrow, "Voice:").pack(side="left")
-    voice_labels = [f"{name}  ({desc})" for name, desc in VOICES]
-    voice_var = tk.StringVar(value=voice_labels[0])
-    voice_box = ttk.Combobox(vrow, textvariable=voice_var, values=voice_labels,
-                             state="readonly", width=42)
-    voice_box.pack(side="left", padx=(6, 8))
+    voice_lbl = tk.Label(vrow, text=voice_state["name"], bg=BG, fg=INK)
+    voice_lbl.pack(side="left", padx=(6, 10))
 
-    def picked_voice():
-        return VOICES[voice_box.current() if voice_box.current() >= 0 else 0][0]
+    def set_voice(name):
+        voice_state["name"] = name
+        voice_lbl.configure(text=name)
+        log(f"Voice set to {name}.")
 
-    def hear_sample():
-        name = picked_voice()
-        hear_btn.configure(state="disabled", text="Loading...")
+    srow = tk.Frame(frame, bg=BG); srow.pack(fill="x")
+    styled_label(srow, "Speed:").pack(side="left")
+    rate_var = tk.IntVar(value=0)
+    tk.Scale(srow, from_=-40, to=40, resolution=5, orient="horizontal",
+             variable=rate_var, bg=BG, fg=INK, highlightthickness=0,
+             troughcolor=PANEL, length=190).pack(side="left", padx=(6, 4))
+    styled_label(srow, "% (negative = slower)").pack(side="left")
+
+    def sample_task(name, rate, btn):
         def task():
             try:
                 import featherpress as fp
-                sample = fp.voice_sample(name)  # downloads the voice on first use
-                play_wav(sample)
-                root.after(0, log, f"Playing sample: {name}")
+                sample = fp.voice_sample(name, rate)
+                play_media(sample)
+                root.after(0, log, f"Playing sample: {name} at {rate:+d}%")
             except Exception as e:
                 root.after(0, log, f"Could not play sample: {e}")
             finally:
-                root.after(0, lambda: hear_btn.configure(state="normal", text="Hear sample"))
-        root.after(0, log, f"Preparing {name} (first listen downloads ~60 MB) ...")
+                root.after(0, lambda: btn.configure(state="normal", text="Hear sample"))
+        btn.configure(state="disabled", text="Loading...")
         threading.Thread(target=task, daemon=True).start()
 
-    hear_btn = tk.Button(vrow, text="Hear sample", command=hear_sample,
-                         bg=PANEL, fg=INK, activebackground=PANEL, activeforeground=INK,
+    def open_voice_picker():
+        import featherpress as fp
+        win = tk.Toplevel(root)
+        win.title("Choose a voice")
+        win.configure(bg=BG)
+        win.geometry("680x540")
+        win.transient(root)
+
+        style = ttk.Style(win)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("Treeview", background=PANEL, fieldbackground=PANEL,
+                        foreground=INK, rowheight=22)
+        style.configure("Treeview.Heading", background=BG, foreground=MUTED)
+
+        top = tk.Frame(win, bg=BG, padx=10, pady=8); top.pack(fill="x")
+        tk.Label(top, text="Search:", bg=BG, fg=MUTED).pack(side="left")
+        search_var = tk.StringVar()
+        tk.Entry(top, textvariable=search_var, bg=PANEL, fg=INK,
+                 insertbackground=INK, relief="flat", width=22).pack(
+            side="left", padx=(4, 10), ipady=3)
+        lang_var = tk.StringVar(value="All languages")
+        lang_box = ttk.Combobox(top, textvariable=lang_var, state="readonly",
+                                values=["All languages"], width=14)
+        lang_box.pack(side="left", padx=(0, 10))
+        gender_var = tk.StringVar(value="Any gender")
+        ttk.Combobox(top, textvariable=gender_var, state="readonly",
+                     values=["Any gender", "Female", "Male"], width=11).pack(side="left")
+
+        mid = tk.Frame(win, bg=BG); mid.pack(fill="both", expand=True, padx=10)
+        cols = ("voice", "language", "gender", "engine")
+        tree = ttk.Treeview(mid, columns=cols, show="headings")
+        heads = {"voice": ("Voice", 280), "language": ("Language", 90),
+                 "gender": ("Gender", 80), "engine": ("Engine", 120)}
+        for c in cols:
+            tree.heading(c, text=heads[c][0])
+            tree.column(c, width=heads[c][1], anchor="w")
+        scroll = ttk.Scrollbar(mid, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="left", fill="y")
+
+        rows = [(n, n.split("-")[0].replace("_", "-"), g, "Piper (offline)")
+                for n, g in OFFLINE_VOICES]
+
+        count_lbl = tk.Label(win, text="Loading the Edge voice catalog ...",
+                             bg=BG, fg=MUTED)
+
+        def apply_filter(*_):
+            q = search_var.get().lower().strip()
+            lang, gen = lang_var.get(), gender_var.get()
+            tree.delete(*tree.get_children())
+            shown = 0
+            for name, loc, g, eng in rows:
+                if q and q not in name.lower() and q not in loc.lower():
+                    continue
+                if lang != "All languages" and loc != lang:
+                    continue
+                if gen != "Any gender" and g != gen:
+                    continue
+                tree.insert("", "end", values=(name, loc, g, eng))
+                shown += 1
+            count_lbl.configure(text=f"{shown} voices")
+
+        def catalog_loaded(edge_rows):
+            rows.extend(edge_rows)
+            locales = sorted({loc for _, loc, _, _ in rows})
+            lang_box.configure(values=["All languages"] + locales)
+            apply_filter()
+
+        def load_catalog():
+            try:
+                edge = fp.list_edge_voices()
+                edge_rows = [(v["name"], v["locale"], v["gender"], "Edge (online)")
+                             for v in edge]
+                root.after(0, catalog_loaded, edge_rows)
+            except Exception as e:
+                root.after(0, log, f"Could not load Edge voices (offline?): {e}")
+                root.after(0, apply_filter)
+
+        search_var.trace_add("write", apply_filter)
+        for w in top.winfo_children():
+            if isinstance(w, ttk.Combobox):
+                w.bind("<<ComboboxSelected>>", apply_filter)
+
+        def selected_name():
+            sel = tree.selection()
+            return str(tree.item(sel[0])["values"][0]) if sel else None
+
+        bottom = tk.Frame(win, bg=BG, padx=10, pady=8); bottom.pack(fill="x")
+        count_lbl.pack(in_=bottom, side="left")
+        pick_btn = tk.Button(bottom, text="Use this voice", bg=PANEL, fg=GOLD,
+                             activebackground=PANEL, activeforeground=GOLD,
+                             relief="flat", padx=14, pady=4)
+        pick_btn.pack(side="right")
+        hear2_btn = tk.Button(bottom, text="Hear sample", bg=PANEL, fg=INK,
+                              activebackground=PANEL, activeforeground=INK,
+                              relief="flat", padx=14, pady=4)
+        hear2_btn.pack(side="right", padx=8)
+
+        def use_selected(*_):
+            name = selected_name()
+            if name:
+                set_voice(name)
+                win.destroy()
+
+        pick_btn.configure(command=use_selected)
+        hear2_btn.configure(
+            command=lambda: selected_name() and sample_task(
+                selected_name(), rate_var.get(), hear2_btn))
+        tree.bind("<Double-1>", use_selected)
+
+        apply_filter()
+        threading.Thread(target=load_catalog, daemon=True).start()
+
+    tk.Button(vrow, text="Choose voice...", command=open_voice_picker,
+              bg=PANEL, fg=CYAN, activebackground=PANEL, activeforeground=CYAN,
+              relief="flat", padx=10, pady=2).pack(side="left", padx=(0, 6))
+    hear_btn = tk.Button(vrow, text="Hear sample", bg=PANEL, fg=INK,
+                         activebackground=PANEL, activeforeground=INK,
                          relief="flat", padx=10, pady=2)
+    hear_btn.configure(command=lambda: sample_task(
+        voice_state["name"], rate_var.get(), hear_btn))
     hear_btn.pack(side="left")
 
     # formats
@@ -295,7 +430,7 @@ def main():
             try:
                 convert(state["file"], state["outdir"], title_e.get(), author_e.get(),
                         theme_var.get(), formats, lambda m: root.after(0, log, m),
-                        voice=picked_voice())
+                        voice=voice_state["name"], rate=rate_var.get())
                 root.after(0, open_output)
             except ModuleNotFoundError as e:
                 root.after(0, log, f"Missing piece: {e.name}. Press the Install/update requirements button, then Convert again.")

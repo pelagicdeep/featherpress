@@ -7,7 +7,7 @@ Drop in a `.md`, `.txt`, `.docx`, `.pdf`, or `.epub` file and get:
 1. **OpenDyslexic PDF**: cream or dark theme, 12.5pt body, 1.8x line spacing, wide margins, left-aligned ragged right, page numbers.
 2. **Accessible EPUB**: OpenDyslexic fonts embedded, high-contrast CSS, chapters split automatically at every `# Heading 1`.
 3. **Audiobook-ready text**: formatting stripped, abbreviations expanded (Dr. becomes Doctor, e.g. becomes for example), symbols spoken (% becomes percent), chapter announcements added. Ready to feed straight into Piper or any TTS engine.
-4. **Voiced audiobook**: the narration text read aloud by Piper TTS, fully offline, stitched into an `.m4b` with chapter markers, title, and author metadata. Opt-in (`--formats audio` or the AUDIO checkbox) because voicing a whole book takes a while.
+4. **Voiced audiobook**: the narration text read aloud and stitched into an `.m4b` with chapter markers, title, and author metadata. Voices come from Microsoft's Edge neural catalog by default (natural-sounding, 300+ voices across dozens of languages, needs internet) with Piper as the fully offline fallback. Speech speed is adjustable. Opt-in (`--formats audio` or the AUDIO checkbox) because voicing a whole book takes a while.
 5. **Standalone HTML reader**: a single self-contained file with fonts embedded, live dark/cream theme toggle, font size and line spacing controls, keyboard accessible, reduced-motion aware.
 
 ## Setup
@@ -40,15 +40,20 @@ python featherpress.py notes.txt --formats pdf,tts
 | `--author` | Author name | none |
 | `--theme` | `cream` or `dark` (PDF and EPUB) | `cream` |
 | `--formats` | Any of `pdf,epub,tts,html,audio` | `pdf,epub,tts,html` |
-| `--voice` | Piper voice for the audiobook | `en_US-lessac-medium` |
+| `--voice` | Audiobook voice, Edge or Piper (see below) | `en-US-AndrewMultilingualNeural` |
+| `--rate` | Speech speed in percent, negative = slower | `0` |
 | `--keep-front-matter` | Keep EPUB cover/copyright/contents pages | skipped |
 
 ### The voiced audiobook
 
-`--formats audio` needs two extra pieces:
+Two engines, chosen automatically from the voice name:
 
-- **Piper TTS** (`pip install piper-tts`, already in requirements.txt). The voice model (~60 MB) downloads once into `voices/` on first use, then everything runs offline. Browse other voices at [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) and pass the name with `--voice`.
-- **ffmpeg** for the chaptered `.m4b` (`winget install Gyan.FFmpeg` on Windows). Without it you still get audio, just as one plain `.wav` with no chapter marks.
+- **Edge neural voices** (default) — names like `en-US-AriaNeural`: Microsoft's neural TTS via the free `edge-tts` package. Natural prosody, solid pronunciation of foreign words, 300+ voices across dozens of languages. Needs an internet connection while voicing. The GUI's "Choose voice..." window lists the whole catalog with search, language and gender filters, and a per-voice sample button.
+- **Piper voices** — names like `en_US-lessac-medium`: fully offline after a one-time ~60 MB model download into `voices/`. More robotic, but nothing leaves your machine. Catalog at [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices).
+
+**ffmpeg** is needed for the chaptered `.m4b` (`winget install Gyan.FFmpeg` on Windows). Without it you still get audio: one plain `.wav` (Piper) or per-chapter `.mp3` files (Edge).
+
+For playback, anything that understands audiobooks will show the chapter list and remember your position: VLC on the desktop, or Smart AudioBook Player / BookPlayer on phones. Most players also have their own speed control on top of `--rate`.
 
 ## Input handling
 
@@ -81,19 +86,25 @@ Terminal optional. Two other doors:
 
 **Drag and drop.** Drag any manuscript (or several at once) onto `featherpress_drop.bat` in File Explorer. Everything converts with defaults (dark theme, all formats, title from the filename) and the output folder opens itself. If something fails, the window stays open so you can read why.
 
-**The GUI.** Double-click `featherpress_gui.bat`. A small dark window: choose your file, optionally set title and author, pick a theme and a narration voice (the "Hear sample" button speaks a preview line in the chosen voice before you commit to a whole book), press Convert. The output folder opens when it finishes. Built on tkinter, which ships with Python, so there is nothing extra to install.
+**The GUI.** Double-click `featherpress_gui.bat`. A small dark window: choose your file, optionally set title and author, pick a theme, a narration voice ("Choose voice..." opens the full searchable catalog; "Hear sample" speaks a preview line before you commit to a whole book), and a speech speed, press Convert. The output folder opens when it finishes. Built on tkinter, which ships with Python, so there is nothing extra to install.
 
 Both use the exact same pipeline underneath; the terminal remains the power-user door for custom output paths and format selection.
 
 ## Version history
 
-Current version: **1.3.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
+Current version: **1.4.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
 The GUI shows its version in the header, and its "What's new" button prints the latest changes.
 `python featherpress.py --version` does the same on the command line.
 
 ## Fonts
 
 OpenDyslexic by Abbie Gonzalez, SIL Open Font License. The TTFs here were converted from the official OTF releases (CFF to TrueType) so ReportLab can embed them.
+
+## Prefer studio-grade narration?
+
+The voices here are free and get the job done, but they are not human. For the most natural AI narration around, try [ElevenReader](https://elevenreader.io) — ElevenLabs' reading app with their studio-grade voices. It reads EPUBs directly, so the accessible EPUB that Featherpress produces drops straight in.
+
+<!-- affiliate: replace the link above with your ElevenLabs affiliate URL -->
 
 ---
 
