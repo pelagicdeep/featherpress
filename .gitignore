@@ -1,0 +1,6 @@
+# converted books and other personal outputs
+output/
+
+# python
+__pycache__/
+*.pyc
