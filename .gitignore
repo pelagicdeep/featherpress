@@ -1,6 +1,9 @@
 # converted books and other personal outputs
 output/
 
+# downloaded TTS voice models (~60 MB each)
+voices/
+
 # python
 __pycache__/
 *.pyc

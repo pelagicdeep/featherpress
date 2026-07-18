@@ -50,6 +50,11 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb):
         p = outdir / f"{stem}_reader.html"
         fp.build_html(blocks, p, title, author)
         status_cb(f"HTML reader written: {p.name}")
+    if "audio" in formats:
+        status_cb("Voicing audiobook (a full book can take a while) ...")
+        out = fp.build_audio(blocks, outdir / f"{stem}_audiobook", title, author,
+                             progress_cb=status_cb)
+        status_cb(f"Audiobook written: {out.name}")
     status_cb("Done.")
     return outdir
 
@@ -106,7 +111,7 @@ def main():
     tk.Button(head, text="What's new", command=whats_new, bg=BG, fg=MUTED,
               activebackground=BG, activeforeground=INK, relief="flat",
               bd=0, cursor="hand2").pack(side="right")
-    tk.Label(frame, text="One manuscript in. Four accessible formats out.",
+    tk.Label(frame, text="One manuscript in. Five accessible formats out.",
              bg=BG, fg=MUTED).pack(anchor="w", pady=(0, 10))
 
     # file picker
@@ -146,8 +151,8 @@ def main():
     frow = tk.Frame(frame, bg=BG); frow.pack(fill="x", pady=(6, 0))
     styled_label(frow, "Formats:").pack(side="left")
     fmt_vars = {}
-    for f in ("pdf", "epub", "tts", "html"):
-        v = tk.BooleanVar(value=True)
+    for f in ("pdf", "epub", "tts", "html", "audio"):
+        v = tk.BooleanVar(value=(f != "audio"))
         fmt_vars[f] = v
         tk.Checkbutton(frow, text=f.upper(), variable=v, bg=BG, fg=INK,
                        selectcolor=PANEL, activebackground=BG,

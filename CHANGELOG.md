@@ -4,6 +4,22 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-07-17
+
+### Added
+- Voiced audiobook output (`--formats audio`, or the AUDIO checkbox in the
+  GUI): each chapter is narrated locally by Piper TTS and stitched into an
+  `.m4b` audiobook with chapter markers, book title, and author metadata.
+  Needs ffmpeg for the `.m4b`; without it a plain `.wav` is written instead.
+  Voicing runs fully offline; the voice model (~60 MB) downloads on first
+  use into `voices/`.
+- `--voice` flag to pick any Piper voice (default `en_US-lessac-medium`).
+- MIT license.
+
+### Changed
+- The TTS text builder now shares a chapterized narration script with the
+  audiobook builder; chapters in the text file are separated by blank lines.
+
 ## [1.1.0] - 2026-07-17
 
 ### Added

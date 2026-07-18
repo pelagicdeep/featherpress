@@ -1,13 +1,14 @@
 # Featherpress
 
-A dyslexic-first publishing pipeline. One manuscript in, four accessible formats out.
+A dyslexic-first publishing pipeline. One manuscript in, five accessible formats out.
 
 Drop in a `.md`, `.txt`, `.docx`, `.pdf`, or `.epub` file and get:
 
 1. **OpenDyslexic PDF**: cream or dark theme, 12.5pt body, 1.8x line spacing, wide margins, left-aligned ragged right, page numbers.
 2. **Accessible EPUB**: OpenDyslexic fonts embedded, high-contrast CSS, chapters split automatically at every `# Heading 1`.
 3. **Audiobook-ready text**: formatting stripped, abbreviations expanded (Dr. becomes Doctor, e.g. becomes for example), symbols spoken (% becomes percent), chapter announcements added. Ready to feed straight into Piper or any TTS engine.
-4. **Standalone HTML reader**: a single self-contained file with fonts embedded, live dark/cream theme toggle, font size and line spacing controls, keyboard accessible, reduced-motion aware.
+4. **Voiced audiobook**: the narration text read aloud by Piper TTS, fully offline, stitched into an `.m4b` with chapter markers, title, and author metadata. Opt-in (`--formats audio` or the AUDIO checkbox) because voicing a whole book takes a while.
+5. **Standalone HTML reader**: a single self-contained file with fonts embedded, live dark/cream theme toggle, font size and line spacing controls, keyboard accessible, reduced-motion aware.
 
 ## Setup
 
@@ -38,8 +39,16 @@ python featherpress.py notes.txt --formats pdf,tts
 | `--title` | Book title | Derived from filename |
 | `--author` | Author name | none |
 | `--theme` | `cream` or `dark` (PDF and EPUB) | `cream` |
-| `--formats` | Any of `pdf,epub,tts,html` | all four |
+| `--formats` | Any of `pdf,epub,tts,html,audio` | `pdf,epub,tts,html` |
+| `--voice` | Piper voice for the audiobook | `en_US-lessac-medium` |
 | `--keep-front-matter` | Keep EPUB cover/copyright/contents pages | skipped |
+
+### The voiced audiobook
+
+`--formats audio` needs two extra pieces:
+
+- **Piper TTS** (`pip install piper-tts`, already in requirements.txt). The voice model (~60 MB) downloads once into `voices/` on first use, then everything runs offline. Browse other voices at [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) and pass the name with `--voice`.
+- **ffmpeg** for the chaptered `.m4b` (`winget install Gyan.FFmpeg` on Windows). Without it you still get audio, just as one plain `.wav` with no chapter marks.
 
 ## Input handling
 
@@ -78,7 +87,7 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 
 ## Version history
 
-Current version: **1.1.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
+Current version: **1.2.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
 The GUI shows its version in the header, and its "What's new" button prints the latest changes.
 `python featherpress.py --version` does the same on the command line.
 

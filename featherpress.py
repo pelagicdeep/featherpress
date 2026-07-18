@@ -6,7 +6,8 @@ Takes one manuscript (.md, .txt, .docx, .pdf, or .epub) and produces:
   1. An OpenDyslexic PDF (cream or dark theme)
   2. A high-contrast EPUB with embedded OpenDyslexic fonts
   3. Audiobook-ready plain text (TTS-cleaned)
-  4. A standalone accessible HTML reader with live toggles
+  4. A voiced audiobook (.m4b with chapters, via Piper TTS + ffmpeg)
+  5. A standalone accessible HTML reader with live toggles
 
 Usage:
   python featherpress.py manuscript.md -o output/
@@ -24,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -814,21 +815,25 @@ def tts_clean(text: str) -> str:
     return text
 
 
-def build_tts(blocks, out_path: Path, title: str, author: str):
-    lines = [tts_clean(title)]
+def tts_script(blocks, title: str, author: str):
+    """Chapterized narration script: [(chapter_title, lines), ...].
+    Shared by the TTS text file and the voiced audiobook."""
+    opening = [tts_clean(title)]
     if author:
-        lines.append(f"Written by {tts_clean(author)}")
-    lines.append("")
+        opening.append(f"Written by {tts_clean(author)}")
+    chapters = [[tts_clean(title).rstrip("."), opening]]
     chapter_n = 0
     for b in blocks:
         if b.kind == "h1":
             chapter_n += 1
-            lines += ["", f"Chapter {chapter_n}. {tts_clean(b.text)}", ""]
-        elif b.kind in ("h2", "h3"):
+            heading = f"Chapter {chapter_n}. {tts_clean(b.text)}"
+            chapters.append([heading.rstrip(".!?"), [heading, ""]])
+            continue
+        lines = chapters[-1][1]
+        if b.kind in ("h2", "h3"):
             lines += ["", tts_clean(b.text), ""]
         elif b.kind == "quote":
-            lines.append(f"Quote. {tts_clean(b.text)} End quote.")
-            lines.append("")
+            lines += [f"Quote. {tts_clean(b.text)} End quote.", ""]
         elif b.kind in ("li-ul", "li-ol"):
             for n, item in enumerate(b.items, 1):
                 prefix = f"{n}. " if b.kind == "li-ol" else ""
@@ -837,13 +842,117 @@ def build_tts(blocks, out_path: Path, title: str, author: str):
         elif b.kind == "hr":
             lines.append("")
         else:
-            lines.append(tts_clean(b.text))
-            lines.append("")
-    out_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+            lines += [tts_clean(b.text), ""]
+    return [(t, lines) for t, lines in chapters if any(l.strip() for l in lines)]
+
+
+def build_tts(blocks, out_path: Path, title: str, author: str):
+    parts = ["\n".join(lines).strip() for _, lines in tts_script(blocks, title, author)]
+    out_path.write_text("\n\n\n".join(parts) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
-# Output 4: standalone accessible HTML reader
+# Output 4: voiced audiobook (Piper TTS)
+# ---------------------------------------------------------------------------
+
+DEFAULT_VOICE = "en_US-lessac-medium"
+VOICE_DIR = SCRIPT_DIR / "voices"
+
+
+def _find_ffmpeg():
+    import shutil
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    # winget installs land here but only reach PATH in new shells
+    root = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+    if root.is_dir():
+        hits = sorted(root.glob("Gyan.FFmpeg*/**/bin/ffmpeg.exe"))
+        if hits:
+            return str(hits[0])
+    return None
+
+
+def _load_voice(voice_name: str):
+    try:
+        from piper import PiperVoice
+    except ImportError:
+        raise ValueError(
+            "The audiobook format needs Piper. Install it with: "
+            "python -m pip install piper-tts")
+    VOICE_DIR.mkdir(exist_ok=True)
+    onnx = VOICE_DIR / f"{voice_name}.onnx"
+    if not onnx.exists():
+        from piper.download_voices import download_voice
+        print(f"    downloading voice {voice_name} (one time, ~60 MB) ...")
+        download_voice(voice_name, VOICE_DIR)
+    return PiperVoice.load(onnx)
+
+
+def _ffmeta_escape(text: str) -> str:
+    return re.sub(r"([=;#\\\n])", r"\\\1", text)
+
+
+def build_audio(blocks, out_path: Path, title: str, author: str,
+                voice_name: str = DEFAULT_VOICE, progress_cb=print) -> Path:
+    """Voice the manuscript into a real audiobook. Writes an .m4b with chapter
+    markers when ffmpeg is available, otherwise a single .wav."""
+    import subprocess
+    import tempfile
+    import wave
+
+    voice = _load_voice(voice_name)
+    chapters = tts_script(blocks, title, author)
+
+    with tempfile.TemporaryDirectory(prefix="featherpress_audio_") as td:
+        tdir = Path(td)
+        wavs = []
+        for i, (ch_title, lines) in enumerate(chapters):
+            text = "\n".join(l for l in lines if l.strip())
+            wav_path = tdir / f"ch_{i:03d}.wav"
+            with wave.open(str(wav_path), "wb") as wf:
+                voice.synthesize_wav(text, wf)
+            with wave.open(str(wav_path), "rb") as wf:
+                dur = wf.getnframes() / wf.getframerate()
+            wavs.append((ch_title, wav_path, dur))
+            progress_cb(f"    voiced {i + 1}/{len(chapters)}: {ch_title[:46]} ({dur:.0f}s)")
+
+        ffmpeg = _find_ffmpeg()
+        if ffmpeg:
+            concat = tdir / "concat.txt"
+            concat.write_text(
+                "".join(f"file '{w.as_posix()}'\n" for _, w, _ in wavs), encoding="utf-8")
+            meta = [";FFMETADATA1", f"title={_ffmeta_escape(title)}",
+                    f"artist={_ffmeta_escape(author or '')}"]
+            t = 0.0
+            for ch_title, _, dur in wavs:
+                meta += ["[CHAPTER]", "TIMEBASE=1/1000",
+                         f"START={int(t * 1000)}", f"END={int((t + dur) * 1000)}",
+                         f"title={_ffmeta_escape(ch_title)}"]
+                t += dur
+            (tdir / "meta.txt").write_text("\n".join(meta) + "\n", encoding="utf-8")
+            out = out_path.with_suffix(".m4b")
+            subprocess.run(
+                [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(concat),
+                 "-i", str(tdir / "meta.txt"), "-map_metadata", "1",
+                 "-c:a", "aac", "-b:a", "64k", str(out)],
+                check=True, capture_output=True)
+            return out
+
+        # no ffmpeg: stitch the chapter WAVs together losslessly instead
+        progress_cb("    ffmpeg not found: writing plain .wav without chapter marks")
+        out = out_path.with_suffix(".wav")
+        with wave.open(str(out), "wb") as dst:
+            for i, (_, w, _) in enumerate(wavs):
+                with wave.open(str(w), "rb") as src:
+                    if i == 0:
+                        dst.setparams(src.getparams())
+                    dst.writeframes(src.readframes(src.getnframes()))
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Output 5: standalone accessible HTML reader
 # ---------------------------------------------------------------------------
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -965,7 +1074,10 @@ def main():
     ap.add_argument("--theme", choices=list(THEMES), default="cream",
                     help="PDF and EPUB color theme (default: cream)")
     ap.add_argument("--formats", default="pdf,epub,tts,html",
-                    help="Comma list of outputs: pdf,epub,tts,html")
+                    help="Comma list of outputs: pdf,epub,tts,html,audio "
+                         "(audio is opt-in; voicing a whole book takes a while)")
+    ap.add_argument("--voice", default=DEFAULT_VOICE,
+                    help=f"Piper voice for the audiobook (default: {DEFAULT_VOICE})")
     ap.add_argument("--version", action="version", version=f"Featherpress {__version__}")
     ap.add_argument("--keep-front-matter", action="store_true",
                     help="Keep EPUB front matter (cover, copyright, contents pages) "
@@ -1002,6 +1114,11 @@ def main():
         p = outdir / f"{stem}_reader.html"
         build_html(blocks, p, title, args.author)
         print(f"  HTML  -> {p}")
+    if "audio" in wanted:
+        print("  voicing audiobook ...")
+        out = build_audio(blocks, outdir / f"{stem}_audiobook", title,
+                          args.author, args.voice)
+        print(f"  AUDIO -> {out}")
     print("Done.")
 
 
