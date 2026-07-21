@@ -58,7 +58,7 @@ For playback, anything that understands audiobooks will show the chapter list an
 ## Input handling
 
 - **Markdown**: headings (h1 to h3), bold, italic, bullet and numbered lists, blockquotes, horizontal rules. Links keep their text, URLs are dropped.
-- **Word (.docx)**: Heading styles, bold/italic runs, List Bullet and List Number styles, Quote styles.
+- **Word (.docx)**: Heading styles, bold/italic runs, List Bullet and List Number styles, Quote styles. Footnotes become renumbered `[N]` markers with a "Notes" section at the end, tables carry through to every output, and inline images leave an `[image: alt text]` placeholder so nothing silently disappears.
 - **Plain text**: paragraphs split on blank lines.
 - **EPUB**: chapters are read in reading order from the book's own spine, headings, bold/italic, lists, and blockquotes carry across, and the table-of-contents page is skipped. Deep heading levels fold into h3. Images and tables are dropped (table text survives as plain paragraphs). Front matter is skipped automatically: conversion starts at the book's own "start reading" marker when it declares one, otherwise leading cover, copyright, praise-quote, and contents pages are dropped (dedications and epigraphs are kept). Pass `--keep-front-matter` to keep everything.
 - **PDF**: text is extracted with structure inference. Font sizes rebuild the headings, the document's own line spacing is measured so paragraphs group correctly, hyphenation across line breaks is repaired, and repeated headers, footers, and bare page numbers are stripped. Honest limitations: bullets flatten into plain lines (their glyphs may appear as stray characters), bold and italic are lost, and scanned PDFs have no text layer at all, so the tool will tell you to OCR them first (ocrmypdf works well). PDF is the lossiest input; when you have the original .docx or .md, prefer it.
@@ -102,7 +102,7 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 
 ## Version history
 
-Current version: **1.5.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
+Current version: **1.6.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
 The GUI shows its version in the header, and its "What's new" button prints the latest changes.
 `python featherpress.py --version` does the same on the command line.
 

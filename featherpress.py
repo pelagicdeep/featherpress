@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -55,9 +55,9 @@ THEMES = {
 
 @dataclass
 class Block:
-    kind: str                 # h1 h2 h3 p quote li-ul li-ol hr
+    kind: str                 # h1 h2 h3 p quote li-ul li-ol hr table book
     text: str = ""            # inline HTML subset: <b> <i> only
-    items: list = field(default_factory=list)
+    items: list = field(default_factory=list)  # list items, or table rows
 
 
 def strip_inline(text: str) -> str:
@@ -150,24 +150,70 @@ def parse_plaintext(raw: str) -> list:
 
 def parse_docx(path: Path) -> list:
     from docx import Document
+    from docx.table import Table
+    from docx.oxml.ns import qn
+    from docx.oxml import parse_xml
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
     doc = Document(str(path))
-    blocks = []
-    ul, ol = [], []
+    blocks, ul, ol = [], [], []
+
+    # --- footnotes: build id->text map (skip separators), renumber in doc order ---
+    fn_text = {}                      # docx id (str) -> body text
+    try:
+        fpart = doc.part.part_related_by(RT.FOOTNOTES)
+    except KeyError:
+        fpart = None
+    if fpart is not None:
+        root = parse_xml(fpart.blob)
+        for fn in root.findall(qn("w:footnote")):
+            if fn.get(qn("w:type")):          # separator / continuationSeparator
+                continue
+            fid = fn.get(qn("w:id"))
+            raw = "".join(t.text or "" for t in fn.iter(qn("w:t"))).strip()
+            # items convention: li-ol items are stored escaped; blocks_to_html
+            # interpolates them raw into <li>...</li> and build_pdf feeds them to
+            # reportlab's mini-XML Paragraph parser, so an unescaped & or < would
+            # corrupt HTML/EPUB and crash the PDF build. Escape at extraction, once.
+            fn_text[fid] = html_mod.escape(raw, quote=False)
+    fn_seq = []                       # ordered list of note texts, doc order
+    fn_num = {}                       # docx id -> assigned 1..N
+
+    def note_marker(fid):
+        if fid not in fn_text:        # dangling ref: ignore
+            return ""
+        if fid not in fn_num:
+            fn_seq.append(fn_text[fid])
+            fn_num[fid] = len(fn_seq)
+        return f"[{fn_num[fid]}]"
 
     def run_html(par):
         out = []
         for run in par.runs:
+            r = run._r
+            ref = r.find(qn("w:footnoteReference"))   # check BEFORE text skip
             t = html_mod.escape(run.text, quote=False)
-            if not t:
-                continue
-            if run.bold and run.italic:
-                t = f"<b><i>{t}</i></b>"
-            elif run.bold:
-                t = f"<b>{t}</b>"
-            elif run.italic:
-                t = f"<i>{t}</i>"
-            out.append(t)
+            if t:
+                if run.bold and run.italic:
+                    t = f"<b><i>{t}</i></b>"
+                elif run.bold:
+                    t = f"<b>{t}</b>"
+                elif run.italic:
+                    t = f"<i>{t}</i>"
+                out.append(t)
+            if ref is not None:
+                out.append(note_marker(ref.get(qn("w:id"))))
         return "".join(out).strip()
+
+    def image_alts(par):
+        alts = []
+        for run in par.runs:
+            for dr in run._r.findall(qn("w:drawing")):
+                docpr = dr.find(".//" + qn("wp:docPr"))
+                alt = None
+                if docpr is not None:
+                    alt = docpr.get("descr") or docpr.get("name")
+                alts.append(alt or "unnamed")
+        return alts
 
     def flush_lists():
         if ul:
@@ -175,27 +221,45 @@ def parse_docx(path: Path) -> list:
         if ol:
             blocks.append(Block("li-ol", items=list(ol))); ol.clear()
 
-    for par in doc.paragraphs:
+    def emit_paragraph(par):
+        imgs = image_alts(par)                # collect BEFORE early-out
         text = run_html(par)
         style = (par.style.name or "").lower()
-        if not text:
-            continue
-        if style.startswith("heading"):
+        if text:
+            if style.startswith("heading"):
+                flush_lists()
+                m = re.search(r"(\d+)", style)
+                level = min(int(m.group(1)) if m else 1, 3)
+                blocks.append(Block(f"h{level}", text))
+            elif "quote" in style:
+                flush_lists()
+                blocks.append(Block("quote", text))
+            elif "list bullet" in style:
+                ul.append(text)
+            elif "list number" in style:
+                ol.append(text)
+            else:
+                flush_lists()
+                blocks.append(Block("p", text))
+        for alt in imgs:                      # image placeholder p-blocks
             flush_lists()
-            m = re.search(r"(\d+)", style)
-            level = min(int(m.group(1)) if m else 1, 3)
-            blocks.append(Block(f"h{level}", text))
-        elif "quote" in style:
-            flush_lists()
-            blocks.append(Block("quote", text))
-        elif "list bullet" in style:
-            ul.append(text)
-        elif "list number" in style:
-            ol.append(text)
-        else:
-            flush_lists()
-            blocks.append(Block("p", text))
+            blocks.append(Block("p", f"[image: {html_mod.escape(alt, quote=False)}]"))
+
+    def emit_table(tbl):
+        flush_lists()
+        rows = [[cell.text for cell in row.cells] for row in tbl.rows]
+        blocks.append(Block("table", items=rows))
+
+    for item in doc.iter_inner_content():
+        if isinstance(item, Table):
+            emit_table(item)
+        else:  # Paragraph
+            emit_paragraph(item)
     flush_lists()
+
+    if fn_seq:                                # endnotes: reuse h2 + li-ol only
+        blocks.append(Block("h2", "Notes"))
+        blocks.append(Block("li-ol", items=list(fn_seq)))
     return blocks
 
 
@@ -726,6 +790,11 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
             story.append(ListFlowable(items, bulletType=bt, bulletColor=accent,
                                       bulletFontName="OD", start="1"))
             story.append(Spacer(1, 8))
+        elif b.kind == "table":
+            for row in b.items:
+                line = "  |  ".join(html_mod.escape(c, quote=False) for c in row)
+                story.append(Paragraph(line, body))
+            story.append(Spacer(1, 8))
         elif b.kind in styles:
             story.append(Paragraph(b.text, styles[b.kind]))
         else:
@@ -786,6 +855,12 @@ def blocks_to_html(chunk) -> str:
             out.append(f"<blockquote><p>{b.text}</p></blockquote>")
         elif b.kind in ("h1", "h2", "h3"):
             out.append(f"<{b.kind}>{b.text}</{b.kind}>")
+        elif b.kind == "table":
+            rows = []
+            for row in b.items:
+                cells = "".join(f"<td>{html_mod.escape(c, quote=False)}</td>" for c in row)
+                rows.append(f"<tr>{cells}</tr>")
+            out.append("<table>" + "".join(rows) + "</table>")
         else:
             out.append(f"<p>{b.text}</p>")
     return "\n".join(out)
@@ -912,6 +987,11 @@ def tts_script(blocks, title: str, author: str):
                 lines.append(f"{prefix}{tts_clean(item)}")
             lines.append("")
         elif b.kind == "hr":
+            lines.append("")
+        elif b.kind == "table":
+            lines.append("Table.")
+            for row in b.items:
+                lines.append(tts_clean(", ".join(row)))
             lines.append("")
         else:
             lines += [tts_clean(b.text), ""]

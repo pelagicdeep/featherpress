@@ -4,6 +4,21 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-07-21
+
+### Added
+- Word (.docx) edge cases, ported from the July 6 workshop fork: footnotes
+  become renumbered `[N]` markers with a "Notes" endnote section, tables
+  carry through to every output (rows in the PDF, real `<table>` in
+  EPUB/HTML, "Table." announcements in narration), and inline images leave
+  an `[image: alt text]` placeholder. `tests/make_fixtures.py` generates
+  the docx fixture exercising all three.
+
+### Fixed
+- The stale Featherpress copy under `an older local copy` (which
+  had none of the audio features) now forwards its launchers to this repo,
+  so old shortcuts open the current version.
+
 ## [1.5.0] - 2026-07-21
 
 ### Added
