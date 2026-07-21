@@ -55,16 +55,23 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb,
     """Run the pipeline. status_cb(str) receives progress lines.
     Returns the output directory Path on success, raises on failure."""
     import featherpress as fp
-    src = Path(input_path)
-    if not src.exists():
-        raise FileNotFoundError(f"File not found: {src}")
-    title = title.strip() or src.stem.replace("-", " ").replace("_", " ").title()
+    paths = ([Path(input_path)] if isinstance(input_path, (str, Path))
+             else [Path(p) for p in input_path])
+    missing = [p for p in paths if not p.exists()]
+    if missing:
+        raise FileNotFoundError("File not found: " + ", ".join(str(m) for m in missing))
+    title = title.strip() or paths[0].stem.replace("-", " ").replace("_", " ").title()
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     stem = fp.re.sub(r"\W+", "-", title.lower()).strip("-") or "book"
 
-    status_cb(f"Reading {src.name} ...")
-    blocks = fp.load_manuscript(src)
+    if len(paths) == 1:
+        status_cb(f"Reading {paths[0].name} ...")
+    else:
+        status_cb(f"Combining {len(paths)} manuscripts in this order:")
+        for p in paths:
+            status_cb(f"  + {p.name}")
+    blocks = fp.load_manuscripts(paths)
     status_cb(f"Parsed {len(blocks)} blocks.")
 
     if "pdf" in formats:
@@ -147,16 +154,22 @@ def main():
     tk.Label(frame, text="One manuscript in. Five accessible formats out.",
              bg=BG, fg=MUTED).pack(anchor="w", pady=(0, 10))
 
-    # file picker
+    # file picker (select several files to combine them into one book)
     file_var = tk.StringVar(value="No file chosen yet")
     def pick_file():
-        p = filedialog.askopenfilename(
-            title="Choose a manuscript",
+        picked = filedialog.askopenfilenames(
+            title="Choose one manuscript, or several to combine",
             filetypes=[("Manuscripts", "*.md *.markdown *.txt *.docx *.pdf *.epub"), ("All files", "*.*")])
-        if p:
-            state["file"] = p
-            file_var.set(Path(p).name)
-    tk.Button(frame, text="Choose manuscript...", command=pick_file,
+        if picked:
+            state["file"] = list(picked)
+            if len(picked) == 1:
+                file_var.set(Path(picked[0]).name)
+            else:
+                file_var.set(f"{len(picked)} manuscripts (combined into one book)")
+                log("Combining in this order (set Title yourself for combined books):")
+                for p in picked:
+                    log(f"  + {Path(p).name}")
+    tk.Button(frame, text="Choose manuscript(s)...", command=pick_file,
               bg=PANEL, fg=CYAN, activebackground=PANEL, activeforeground=CYAN,
               relief="flat", padx=12, pady=6).pack(anchor="w")
     tk.Label(frame, textvariable=file_var, bg=BG, fg=INK).pack(anchor="w", pady=(2, 10))

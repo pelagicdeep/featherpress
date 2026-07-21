@@ -4,6 +4,18 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-07-21
+
+### Added
+- Combine mode: pass several manuscripts to the CLI (in reading order), or
+  multi-select in the GUI's file picker, and they merge into one continuous
+  book. Each volume's own title page — title, subtitle, epigraph,
+  dedication — is stripped so the narration flows without interruption;
+  every seam becomes a silent chapter marker in the audiobook (the book's
+  title in the player's chapter list, nothing spoken) and a top-level
+  heading in the PDF/EPUB/HTML outputs. Manuscripts whose first heading is
+  a chapter rather than a title page are detected and kept whole.
+
 ## [1.4.0] - 2026-07-18
 
 ### Added

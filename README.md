@@ -65,6 +65,16 @@ For playback, anything that understands audiobooks will show the chapter list an
 
 Chapters are detected at h1 boundaries for the EPUB table of contents and the TTS chapter announcements.
 
+### Combining a series
+
+Pass several manuscripts in reading order (or multi-select in the GUI) and they merge into one continuous book:
+
+```bash
+python featherpress.py book1.md book2.md book3.md --title "The Trilogy" --formats tts,audio
+```
+
+Each volume's own title page (title, subtitle, epigraph, dedication) is stripped so the story flows straight through. In the audiobook, every seam becomes a *silent* chapter marker — the book's title shows in your player's chapter list, but nothing extra is spoken. In the PDF, EPUB, and HTML outputs the book titles appear as top-level headings.
+
 ## Design choices, on purpose
 
 - Left-aligned text, never justified. Justified text creates rivers of white space that make tracking harder.
@@ -92,7 +102,7 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 
 ## Version history
 
-Current version: **1.4.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
+Current version: **1.5.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
 The GUI shows its version in the header, and its "What's new" button prints the latest changes.
 `python featherpress.py --version` does the same on the command line.
 

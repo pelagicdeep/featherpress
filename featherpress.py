@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -561,6 +561,71 @@ def _parse_pdf_basic(path: Path) -> list:
     return parse_plaintext(raw)
 
 
+_NON_TITLE_HEADING_RE = re.compile(r"^(a\s+)?(novella|novel|short story|found document)\b", re.I)
+
+
+def strip_book_front_matter(blocks):
+    """Drop a single manuscript's own title page — leading title, subtitle,
+    epigraph, dedication, rules — keeping everything from the first real
+    section heading or first substantial paragraph onward."""
+    def is_subtitle(b):
+        t = b.text.strip()
+        return t.startswith("<i>") and t.endswith("</i>")
+
+    def next_solid(i):
+        return next((n for n in blocks[i + 1:] if n.kind != "hr"), None)
+
+    for i, b in enumerate(blocks):
+        text = strip_inline(b.text).strip()
+        if b.kind == "h1":
+            if i > 0:
+                return blocks[i:]  # a later h1 is a chapter, not the title
+            nxt = next_solid(i)
+            if nxt is not None and nxt.kind == "p" and not is_subtitle(nxt) \
+                    and len(strip_inline(nxt.text)) >= 120:
+                return blocks[i:]  # h1 straight into prose: chapter heading
+            continue  # a real title page: strip it
+        if b.kind in ("h2", "h3") and not _NON_TITLE_HEADING_RE.match(text):
+            return blocks[i:]
+        if b.kind in ("li-ul", "li-ol"):
+            return blocks[i:]
+        if b.kind == "p" and not is_subtitle(b):
+            if len(text) >= 200:
+                return blocks[i:]
+            # a short line right before real prose is an opening, not a dedication
+            nxt = next_solid(i)
+            if nxt is not None and nxt.kind == "p" and len(strip_inline(nxt.text)) >= 200:
+                return blocks[i:]
+    return blocks
+
+
+def load_manuscripts(paths, keep_front_matter: bool = False) -> list:
+    """Load one manuscript, or combine several into one continuous stream:
+    each book's own title page is stripped and a 'book' marker block sits at
+    every seam — an unspoken chapter mark in the audiobook, a top-level
+    heading in the visual outputs."""
+    paths = [Path(p) for p in paths]
+    if len(paths) == 1:
+        return load_manuscript(paths[0], keep_front_matter)
+    combined = []
+    for p in paths:
+        blocks = load_manuscript(p, keep_front_matter)
+        stripped = strip_book_front_matter(blocks)
+        h1 = next((b for b in blocks if b.kind == "h1"), None)
+        if h1 is not None and (not stripped or stripped[0] is not h1):
+            title = strip_inline(h1.text)  # the stripped title page names the book
+        else:
+            title = p.stem.replace("-", " ").replace("_", " ").title()
+        combined.append(Block("book", title))
+        combined.extend(stripped)
+    return combined
+
+
+def _books_as_h1(blocks):
+    """For the visual outputs, book seam markers render as top headings."""
+    return [Block("h1", b.text) if b.kind == "book" else b for b in blocks]
+
+
 def load_manuscript(path: Path, keep_front_matter: bool = False) -> list:
     ext = path.suffix.lower()
     if ext == ".docx":
@@ -592,6 +657,7 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
     )
     from reportlab.lib.styles import ParagraphStyle
 
+    blocks = _books_as_h1(blocks)
     t = THEMES[theme_name]
     pdfmetrics.registerFont(TTFont("OD", str(FONT_DIR / FONTS["regular"])))
     pdfmetrics.registerFont(TTFont("OD-Bold", str(FONT_DIR / FONTS["bold"])))
@@ -745,6 +811,7 @@ def split_chapters(blocks):
 def build_epub(blocks, out_path: Path, title: str, author: str, theme_name: str):
     from ebooklib import epub
 
+    blocks = _books_as_h1(blocks)
     t = THEMES[theme_name]
     book = epub.EpubBook()
     book.set_identifier(re.sub(r"\W+", "-", title.lower()) or "featherpress-book")
@@ -824,6 +891,11 @@ def tts_script(blocks, title: str, author: str):
     chapters = [[tts_clean(title).rstrip("."), opening]]
     chapter_n = 0
     for b in blocks:
+        if b.kind == "book":
+            # a seam between combined books: an audiobook chapter mark that
+            # carries the book's title but speaks nothing, so the text flows
+            chapters.append([tts_clean(b.text).rstrip(".!?"), []])
+            continue
         if b.kind == "h1":
             chapter_n += 1
             heading = f"Chapter {chapter_n}. {tts_clean(b.text)}"
@@ -1166,6 +1238,7 @@ __CONTENT__
 
 
 def build_html(blocks, out_path: Path, title: str, author: str):
+    blocks = _books_as_h1(blocks)
     font_reg = base64.b64encode((FONT_DIR / FONTS["regular"]).read_bytes()).decode()
     font_bold = base64.b64encode((FONT_DIR / FONTS["bold"]).read_bytes()).decode()
     content = [f"<h1>{html_mod.escape(title, quote=False)}</h1>"]
@@ -1186,7 +1259,10 @@ def build_html(blocks, out_path: Path, title: str, author: str):
 
 def main():
     ap = argparse.ArgumentParser(description="Featherpress: dyslexic-first publishing pipeline")
-    ap.add_argument("input", help="Manuscript file (.md, .txt, .docx, .pdf, or .epub)")
+    ap.add_argument("input", nargs="+",
+                    help="Manuscript file(s) (.md, .txt, .docx, .pdf, or .epub). "
+                         "Several files combine, in the order given, into one "
+                         "continuous book with each volume's title page stripped.")
     ap.add_argument("-o", "--outdir", default="featherpress_output", help="Output directory")
     ap.add_argument("--title", default=None, help="Book title (default: derived from filename)")
     ap.add_argument("--author", default="", help="Author name")
@@ -1208,17 +1284,23 @@ def main():
                          "instead of starting at the story")
     args = ap.parse_args()
 
-    src = Path(args.input)
-    if not src.exists():
-        sys.exit(f"Input not found: {src}")
+    srcs = [Path(p) for p in args.input]
+    missing = [s for s in srcs if not s.exists()]
+    if missing:
+        sys.exit("Input not found: " + ", ".join(str(m) for m in missing))
 
-    title = args.title or src.stem.replace("-", " ").replace("_", " ").title()
+    title = args.title or srcs[0].stem.replace("-", " ").replace("_", " ").title()
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"\W+", "-", title.lower()).strip("-") or "book"
 
-    print(f"Reading {src.name} ...")
-    blocks = load_manuscript(src, args.keep_front_matter)
+    if len(srcs) == 1:
+        print(f"Reading {srcs[0].name} ...")
+    else:
+        print(f"Combining {len(srcs)} manuscripts:")
+        for s in srcs:
+            print(f"  + {s.name}")
+    blocks = load_manuscripts(srcs, args.keep_front_matter)
     print(f"  parsed {len(blocks)} blocks")
 
     wanted = {f.strip() for f in args.formats.lower().split(",")}
