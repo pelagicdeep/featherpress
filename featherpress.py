@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -1131,6 +1131,57 @@ def _ffmeta_escape(text: str) -> str:
     return re.sub(r"([=;#\\\n])", r"\\\1", text)
 
 
+def _chunk_text(text: str, target: int = 4000):
+    """Split narration text into chunks near the target size, on paragraph
+    boundaries, so each Edge request stays short-lived and retryable."""
+    paras = [p for p in text.split("\n") if p.strip()]
+    chunks, cur, size = [], [], 0
+    for p in paras:
+        if cur and size + len(p) > target:
+            chunks.append("\n".join(cur)); cur, size = [], 0
+        cur.append(p); size += len(p) + 1
+    if cur:
+        chunks.append("\n".join(cur))
+    return chunks or [text]
+
+
+def _synth_edge_many(jobs, rate: int, progress_cb, concurrency: int = 4):
+    """Synthesize many (text, voice, out_path) jobs concurrently with retries.
+    Each job is one bounded websocket session, so a dropped connection costs
+    one chunk, not the whole book."""
+    try:
+        import edge_tts
+    except ImportError:
+        raise ValueError(
+            "Edge voices need the edge-tts package. Install it with: "
+            "python -m pip install edge-tts")
+    import asyncio
+
+    done = [0]
+
+    async def one(sem, text, voice, out):
+        async with sem:
+            for attempt in range(1, 4):
+                try:
+                    com = edge_tts.Communicate(text, voice=voice, rate=f"{rate:+d}%")
+                    await asyncio.wait_for(com.save(str(out)),
+                                           timeout=max(120, len(text) // 15))
+                    done[0] += 1
+                    progress_cb(f"    voiced part {done[0]}/{len(jobs)}")
+                    return
+                except Exception as e:
+                    if attempt == 3:
+                        raise
+                    progress_cb(f"    part failed ({type(e).__name__}), "
+                                f"retry {attempt}/2 ...")
+                    await asyncio.sleep(5 * attempt)
+
+    async def run():
+        sem = asyncio.Semaphore(concurrency)
+        await asyncio.gather(*(one(sem, t, v, o) for t, v, o in jobs))
+    asyncio.run(run())
+
+
 def _media_duration(path: Path, ffmpeg: str) -> float:
     """Duration in seconds via the ffprobe that ships beside ffmpeg."""
     import json
@@ -1152,31 +1203,111 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
     offline. rate is a percent speed adjustment, negative = slower.
     Writes an .m4b with chapter markers when ffmpeg is available; without
     ffmpeg, Piper falls back to one .wav and Edge to per-chapter .mp3 files."""
-    import subprocess
-    import tempfile
-    import wave
+    import hashlib
+    import json
+    import shutil
 
     piper = is_piper_voice(voice_name)
     voice = _load_voice(voice_name) if piper else None
     chapters = tts_script(blocks, title, author)
     ffmpeg = _find_ffmpeg()
 
+    if piper:
+        return _build_audio_piper(chapters, out_path, title, author, voice,
+                                  rate, ffmpeg, progress_cb)
+
+    # Edge path: chunked, concurrent, resumable. Chunks live in a persistent
+    # work folder so an interrupted run picks up where it stopped.
+    ch_chunks = [(ch_title, _chunk_text("\n".join(l for l in lines if l.strip())))
+                 for ch_title, lines in chapters]
+    full_text = "\n".join(c for _, chunks in ch_chunks for c in chunks)
+    manifest = {"voice": voice_name, "rate": rate, "version": 1,
+                "hash": hashlib.sha256(full_text.encode("utf-8")).hexdigest()[:16]}
+    work = out_path.parent / f".{out_path.name}_work"
+    mpath = work / "manifest.json"
+    stale = True
+    if mpath.exists():
+        try:
+            stale = json.loads(mpath.read_text(encoding="utf-8")) != manifest
+        except json.JSONDecodeError:
+            pass
+    if stale:
+        shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, exist_ok=True)
+    mpath.write_text(json.dumps(manifest), encoding="utf-8")
+
+    files = []          # (chapter_index, path) in final play order
+    jobs = []
+    for i, (_, chunks) in enumerate(ch_chunks):
+        for j, chunk in enumerate(chunks):
+            part = work / f"ch{i:03d}_{j:03d}.mp3"
+            files.append((i, part))
+            if not (part.exists() and part.stat().st_size > 0):
+                jobs.append((chunk, voice_name, part))
+    total = len(files)
+    if len(jobs) < total:
+        progress_cb(f"    resuming: {total - len(jobs)}/{total} parts already voiced")
+    progress_cb(f"    voicing {len(jobs)} parts across {len(ch_chunks)} chapters ...")
+    _synth_edge_many(jobs, rate, progress_cb)
+
+    if ffmpeg:
+        durs = [_media_duration(p, ffmpeg) for _, p in files]
+        concat = work / "concat.txt"
+        concat.write_text(
+            "".join(f"file '{p.as_posix()}'\n" for _, p in files), encoding="utf-8")
+        meta = [";FFMETADATA1", f"title={_ffmeta_escape(title)}",
+                f"artist={_ffmeta_escape(author or '')}"]
+        t = 0.0
+        for i, (ch_title, _) in enumerate(ch_chunks):
+            dur = sum(d for (ci, _), d in zip(files, durs) if ci == i)
+            meta += ["[CHAPTER]", "TIMEBASE=1/1000",
+                     f"START={int(t * 1000)}", f"END={int((t + dur) * 1000)}",
+                     f"title={_ffmeta_escape(ch_title)}"]
+            t += dur
+        (work / "meta.txt").write_text("\n".join(meta) + "\n", encoding="utf-8")
+        out = out_path.with_suffix(".m4b")
+        progress_cb(f"    assembling {out.name} ({t / 3600:.1f} hours) ...")
+        import subprocess
+        subprocess.run(
+            [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(concat),
+             "-i", str(work / "meta.txt"), "-map_metadata", "1",
+             "-c:a", "aac", "-b:a", "64k", str(out)],
+            check=True, capture_output=True)
+        shutil.rmtree(work, ignore_errors=True)
+        return out
+
+    # no ffmpeg: merge each chapter's chunk mp3 bytes into one numbered mp3
+    progress_cb("    ffmpeg not found: writing per-chapter mp3 files")
+    out = out_path
+    out.mkdir(parents=True, exist_ok=True)
+    for i, (ch_title, _) in enumerate(ch_chunks):
+        safe = re.sub(r"[^\w\- ]+", "", ch_title)[:60].strip() or f"part {i}"
+        with open(out / f"{i:03d} - {safe}.mp3", "wb") as dst:
+            for ci, p in files:
+                if ci == i:
+                    dst.write(p.read_bytes())
+    shutil.rmtree(work, ignore_errors=True)
+    return out
+
+
+def _build_audio_piper(chapters, out_path: Path, title: str, author: str,
+                       voice, rate: int, ffmpeg, progress_cb) -> Path:
+    """Offline Piper synthesis, one wav per chapter (CPU-bound, sequential)."""
+    import subprocess
+    import tempfile
+    import wave
+
     with tempfile.TemporaryDirectory(prefix="featherpress_audio_") as td:
         tdir = Path(td)
         parts = []
         for i, (ch_title, lines) in enumerate(chapters):
             text = "\n".join(l for l in lines if l.strip())
-            part = tdir / (f"ch_{i:03d}.wav" if piper else f"ch_{i:03d}.mp3")
-            if piper:
-                _synth_piper(voice, text, part, rate)
-                with wave.open(str(part), "rb") as wf:
-                    dur = wf.getnframes() / wf.getframerate()
-            else:
-                _synth_edge(text, voice_name, part, rate)
-                dur = _media_duration(part, ffmpeg) if ffmpeg else 0.0
+            part = tdir / f"ch_{i:03d}.wav"
+            _synth_piper(voice, text, part, rate)
+            with wave.open(str(part), "rb") as wf:
+                dur = wf.getnframes() / wf.getframerate()
             parts.append((ch_title, part, dur))
-            progress_cb(f"    voiced {i + 1}/{len(chapters)}: {ch_title[:46]}"
-                        + (f" ({dur:.0f}s)" if dur else ""))
+            progress_cb(f"    voiced {i + 1}/{len(chapters)}: {ch_title[:46]} ({dur:.0f}s)")
 
         if ffmpeg:
             concat = tdir / "concat.txt"
@@ -1199,26 +1330,15 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
                 check=True, capture_output=True)
             return out
 
-        if piper:
-            # no ffmpeg: stitch the chapter WAVs together losslessly instead
-            progress_cb("    ffmpeg not found: writing plain .wav without chapter marks")
-            out = out_path.with_suffix(".wav")
-            with wave.open(str(out), "wb") as dst:
-                for i, (_, p, _) in enumerate(parts):
-                    with wave.open(str(p), "rb") as src:
-                        if i == 0:
-                            dst.setparams(src.getparams())
-                        dst.writeframes(src.readframes(src.getnframes()))
-            return out
-
-        # no ffmpeg, Edge mp3s: keep one numbered mp3 per chapter
-        progress_cb("    ffmpeg not found: writing per-chapter mp3 files")
-        import shutil
-        out = out_path  # becomes a directory
-        out.mkdir(parents=True, exist_ok=True)
-        for i, (ch_title, p, _) in enumerate(parts):
-            safe = re.sub(r"[^\w\- ]+", "", ch_title)[:60].strip() or f"part {i}"
-            shutil.copy2(p, out / f"{i:03d} - {safe}.mp3")
+        # no ffmpeg: stitch the chapter WAVs together losslessly instead
+        progress_cb("    ffmpeg not found: writing plain .wav without chapter marks")
+        out = out_path.with_suffix(".wav")
+        with wave.open(str(out), "wb") as dst:
+            for i, (_, p, _) in enumerate(parts):
+                with wave.open(str(p), "rb") as src:
+                    if i == 0:
+                        dst.setparams(src.getparams())
+                    dst.writeframes(src.readframes(src.getnframes()))
         return out
 
 

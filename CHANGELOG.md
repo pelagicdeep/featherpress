@@ -4,6 +4,17 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-07-22
+
+### Changed
+- Edge audiobook synthesis is now chunked, concurrent, and resumable.
+  Chapters split into ~4000-character parts, four parts voice at once
+  (roughly 4x faster on a long book), every part reports progress, and a
+  dropped connection retries that part instead of stalling the whole run.
+  Parts persist in a `.<name>_work` folder next to the output, so an
+  interrupted conversion picks up where it stopped instead of starting
+  over; the folder is removed once the audiobook is assembled.
+
 ## [1.6.0] - 2026-07-21
 
 ### Added
