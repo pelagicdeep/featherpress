@@ -4,6 +4,15 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-07-22
+
+### Added
+- Dramatic pauses in the voiced audiobook (Edge + ffmpeg): the narration
+  now holds real silence where the manuscript asks for a beat — 1.5s at
+  scene breaks (`---`), around section headings, after quotes, and a 2s
+  breath at every chapter and book turn. Adjacent pauses merge, capped at
+  2.5s. The TTS text output is unchanged.
+
 ## [1.7.0] - 2026-07-22
 
 ### Changed

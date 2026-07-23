@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -957,14 +957,24 @@ def tts_clean(text: str) -> str:
     return text
 
 
-def tts_script(blocks, title: str, author: str):
+PAUSE_RE = re.compile(r"^<<pause:([\d.]+)>>$")
+
+
+def tts_script(blocks, title: str, author: str, pauses: bool = False):
     """Chapterized narration script: [(chapter_title, lines), ...].
-    Shared by the TTS text file and the voiced audiobook."""
+    Shared by the TTS text file and the voiced audiobook. With pauses=True,
+    `<<pause:seconds>>` sentinel lines mark where the audiobook should hold
+    a beat: scene breaks, heading turns, quotes."""
     opening = [tts_clean(title)]
     if author:
         opening.append(f"Written by {tts_clean(author)}")
     chapters = [[tts_clean(title).rstrip("."), opening]]
     chapter_n = 0
+
+    def pause(sec):
+        if pauses:
+            chapters[-1][1].append(f"<<pause:{sec}>>")
+
     for b in blocks:
         if b.kind == "book":
             # a seam between combined books: an audiobook chapter mark that
@@ -975,19 +985,25 @@ def tts_script(blocks, title: str, author: str):
             chapter_n += 1
             heading = f"Chapter {chapter_n}. {tts_clean(b.text)}"
             chapters.append([heading.rstrip(".!?"), [heading, ""]])
+            pause(1.0)
             continue
         lines = chapters[-1][1]
         if b.kind in ("h2", "h3"):
+            pause(0.8)
             lines += ["", tts_clean(b.text), ""]
+            pause(1.0)
         elif b.kind == "quote":
             lines += [f"Quote. {tts_clean(b.text)} End quote.", ""]
+            pause(0.5)
         elif b.kind in ("li-ul", "li-ol"):
             for n, item in enumerate(b.items, 1):
                 prefix = f"{n}. " if b.kind == "li-ol" else ""
                 lines.append(f"{prefix}{tts_clean(item)}")
             lines.append("")
         elif b.kind == "hr":
+            # a scene break in the manuscript is a beat for the listener
             lines.append("")
+            pause(1.5)
         elif b.kind == "table":
             lines.append("Table.")
             for row in b.items:
@@ -995,7 +1011,34 @@ def tts_script(blocks, title: str, author: str):
             lines.append("")
         else:
             lines += [tts_clean(b.text), ""]
-    return [(t, lines) for t, lines in chapters if any(l.strip() for l in lines)]
+    return [(t, lines) for t, lines in chapters
+            if any(l.strip() and not PAUSE_RE.match(l.strip()) for l in lines)]
+
+
+def _segments(lines):
+    """Fold narration lines into [text, pause_after_seconds] segments."""
+    segs, cur = [], []
+
+    def flush():
+        text = "\n".join(x for x in cur if x.strip())
+        cur.clear()
+        return text
+
+    for l in lines:
+        m = PAUSE_RE.match(l.strip())
+        if m:
+            text = flush()
+            if text:
+                segs.append([text, float(m.group(1))])
+            elif segs:
+                # merge adjacent pauses, capped so stacks don't gape
+                segs[-1][1] = min(segs[-1][1] + float(m.group(1)), 2.5)
+        else:
+            cur.append(l)
+    text = flush()
+    if text:
+        segs.append([text, 0.0])
+    return segs
 
 
 def build_tts(blocks, out_path: Path, title: str, author: str):
@@ -1209,20 +1252,21 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
 
     piper = is_piper_voice(voice_name)
     voice = _load_voice(voice_name) if piper else None
-    chapters = tts_script(blocks, title, author)
     ffmpeg = _find_ffmpeg()
 
     if piper:
+        chapters = tts_script(blocks, title, author)
         return _build_audio_piper(chapters, out_path, title, author, voice,
                                   rate, ffmpeg, progress_cb)
 
     # Edge path: chunked, concurrent, resumable. Chunks live in a persistent
-    # work folder so an interrupted run picks up where it stopped.
-    ch_chunks = [(ch_title, _chunk_text("\n".join(l for l in lines if l.strip())))
-                 for ch_title, lines in chapters]
-    full_text = "\n".join(c for _, chunks in ch_chunks for c in chunks)
-    manifest = {"voice": voice_name, "rate": rate, "version": 1,
-                "hash": hashlib.sha256(full_text.encode("utf-8")).hexdigest()[:16]}
+    # work folder so an interrupted run picks up where it stopped. Pause
+    # sentinels become real silence between chunks (needs ffmpeg).
+    chapters = tts_script(blocks, title, author, pauses=bool(ffmpeg))
+    ch_segs = [(ch_title, _segments(lines)) for ch_title, lines in chapters]
+    fingerprint = "\n".join(f"{text}|{p}" for _, segs in ch_segs for text, p in segs)
+    manifest = {"voice": voice_name, "rate": rate, "version": 2,
+                "hash": hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]}
     work = out_path.parent / f".{out_path.name}_work"
     mpath = work / "manifest.json"
     stale = True
@@ -1236,18 +1280,35 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
     work.mkdir(parents=True, exist_ok=True)
     mpath.write_text(json.dumps(manifest), encoding="utf-8")
 
+    def silence(seconds):
+        p = work / f"silence_{int(seconds * 1000)}.mp3"
+        if not p.exists():
+            import subprocess
+            subprocess.run(
+                [ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+                 "-t", f"{seconds}", "-c:a", "libmp3lame", "-b:a", "48k", str(p)],
+                check=True, capture_output=True)
+        return p
+
     files = []          # (chapter_index, path) in final play order
     jobs = []
-    for i, (_, chunks) in enumerate(ch_chunks):
-        for j, chunk in enumerate(chunks):
-            part = work / f"ch{i:03d}_{j:03d}.mp3"
-            files.append((i, part))
-            if not (part.exists() and part.stat().st_size > 0):
-                jobs.append((chunk, voice_name, part))
-    total = len(files)
-    if len(jobs) < total:
-        progress_cb(f"    resuming: {total - len(jobs)}/{total} parts already voiced")
-    progress_cb(f"    voicing {len(jobs)} parts across {len(ch_chunks)} chapters ...")
+    voiced_total = 0
+    for i, (_, segs) in enumerate(ch_segs):
+        if ffmpeg and i > 0:
+            files.append((i, silence(2.0)))  # a breath at every book/chapter turn
+        for s, (text, pause_after) in enumerate(segs):
+            for j, chunk in enumerate(_chunk_text(text)):
+                part = work / f"ch{i:03d}_s{s:03d}_{j:03d}.mp3"
+                files.append((i, part))
+                voiced_total += 1
+                if not (part.exists() and part.stat().st_size > 0):
+                    jobs.append((chunk, voice_name, part))
+            if ffmpeg and pause_after:
+                files.append((i, silence(pause_after)))
+    if len(jobs) < voiced_total:
+        progress_cb(f"    resuming: {voiced_total - len(jobs)}/{voiced_total} "
+                    "parts already voiced")
+    progress_cb(f"    voicing {len(jobs)} parts across {len(ch_segs)} chapters ...")
     _synth_edge_many(jobs, rate, progress_cb)
 
     if ffmpeg:
@@ -1258,7 +1319,7 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
         meta = [";FFMETADATA1", f"title={_ffmeta_escape(title)}",
                 f"artist={_ffmeta_escape(author or '')}"]
         t = 0.0
-        for i, (ch_title, _) in enumerate(ch_chunks):
+        for i, (ch_title, _) in enumerate(ch_segs):
             dur = sum(d for (ci, _), d in zip(files, durs) if ci == i)
             meta += ["[CHAPTER]", "TIMEBASE=1/1000",
                      f"START={int(t * 1000)}", f"END={int((t + dur) * 1000)}",
@@ -1280,7 +1341,7 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
     progress_cb("    ffmpeg not found: writing per-chapter mp3 files")
     out = out_path
     out.mkdir(parents=True, exist_ok=True)
-    for i, (ch_title, _) in enumerate(ch_chunks):
+    for i, (ch_title, _) in enumerate(ch_segs):
         safe = re.sub(r"[^\w\- ]+", "", ch_title)[:60].strip() or f"part {i}"
         with open(out / f"{i:03d} - {safe}.mp3", "wb") as dst:
             for ci, p in files:

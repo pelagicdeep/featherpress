@@ -53,6 +53,8 @@ Two engines, chosen automatically from the voice name:
 
 **ffmpeg** is needed for the chaptered `.m4b` (`winget install Gyan.FFmpeg` on Windows). Without it you still get audio: one plain `.wav` (Piper) or per-chapter `.mp3` files (Edge).
 
+The narration holds real pauses where the manuscript asks for them: a beat at every `---` scene break, around section headings, after quotes, and a breath at chapter and book turns — so contemplative passages land instead of being steamrolled.
+
 Long books voice in resumable parts: progress prints as each part finishes, and if the run is interrupted, running the same conversion again picks up where it left off (the `.<name>_work` folder next to the output holds the finished parts until assembly).
 
 For playback, anything that understands audiobooks will show the chapter list and remember your position: VLC on the desktop, or Smart AudioBook Player / BookPlayer on phones. Most players also have their own speed control on top of `--rate`.
@@ -104,7 +106,7 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 
 ## Version history
 
-Current version: **1.7.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
+Current version: **1.8.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
 The GUI shows its version in the header, and its "What's new" button prints the latest changes.
 `python featherpress.py --version` does the same on the command line.
 
