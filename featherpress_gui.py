@@ -51,7 +51,7 @@ def play_media(path):
 # ---------------------------------------------------------------------------
 
 def convert(input_path, outdir, title, author, theme, formats, status_cb,
-            voice=DEFAULT_VOICE, rate=0):
+            voice=DEFAULT_VOICE, rate=0, book_voices=None):
     """Run the pipeline. status_cb(str) receives progress lines.
     Returns the output directory Path on success, raises on failure."""
     import featherpress as fp
@@ -69,9 +69,11 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb,
         status_cb(f"Reading {paths[0].name} ...")
     else:
         status_cb(f"Combining {len(paths)} manuscripts in this order:")
-        for p in paths:
-            status_cb(f"  + {p.name}")
-    blocks = fp.load_manuscripts(paths)
+        for i, p in enumerate(paths):
+            narrator = (f"  (narrator: {book_voices[i]})"
+                        if book_voices and book_voices[i] else "")
+            status_cb(f"  + {p.name}{narrator}")
+    blocks = fp.load_manuscripts(paths, voices=book_voices)
     status_cb(f"Parsed {len(blocks)} blocks.")
 
     if "pdf" in formats:
@@ -118,7 +120,8 @@ def main():
     root.geometry("560x600")
     root.minsize(480, 560)
 
-    state = {"file": None, "outdir": Path(__file__).resolve().parent / "output"}
+    state = {"file": None, "outdir": Path(__file__).resolve().parent / "output",
+             "book_voices": {}}
 
     def styled_label(parent, text, **kw):
         return tk.Label(parent, text=text, bg=BG, fg=MUTED, anchor="w", **kw)
@@ -162,6 +165,7 @@ def main():
             filetypes=[("Manuscripts", "*.md *.markdown *.txt *.docx *.pdf *.epub"), ("All files", "*.*")])
         if picked:
             state["file"] = list(picked)
+            state["book_voices"] = {}
             if len(picked) == 1:
                 file_var.set(Path(picked[0]).name)
             else:
@@ -227,7 +231,8 @@ def main():
         btn.configure(state="disabled", text="Loading...")
         threading.Thread(target=task, daemon=True).start()
 
-    def open_voice_picker():
+    def open_voice_picker(on_pick=None):
+        on_pick = on_pick or set_voice
         import featherpress as fp
         win = tk.Toplevel(root)
         win.title("Choose a voice")
@@ -332,7 +337,7 @@ def main():
         def use_selected(*_):
             name = selected_name()
             if name:
-                set_voice(name)
+                on_pick(name)
                 win.destroy()
 
         pick_btn.configure(command=use_selected)
@@ -353,6 +358,56 @@ def main():
     hear_btn.configure(command=lambda: sample_task(
         voice_state["name"], rate_var.get(), hear_btn))
     hear_btn.pack(side="left")
+
+    def open_narrators():
+        files = state["file"] if isinstance(state["file"], list) else None
+        if not files or len(files) < 2:
+            log("Choose several manuscripts first: per-book narrators "
+                "apply to combined books.")
+            return
+        win = tk.Toplevel(root)
+        win.title("Narrators per book")
+        win.configure(bg=BG)
+        win.transient(root)
+        tk.Label(win, text="Each book reads in the main voice unless changed here.",
+                 bg=BG, fg=MUTED, padx=12, pady=8).pack(anchor="w")
+        rows = tk.Frame(win, bg=BG, padx=12); rows.pack(fill="both", expand=True)
+        labels = {}
+
+        def set_book_voice(path, name):
+            state["book_voices"][path] = name
+            labels[path].configure(text=name)
+            log(f"Narrator for {Path(path).name}: {name}")
+
+        def clear_book_voice(path):
+            state["book_voices"].pop(path, None)
+            labels[path].configure(text="(main voice)")
+
+        for p in files:
+            row = tk.Frame(rows, bg=BG); row.pack(fill="x", pady=2)
+            tk.Label(row, text=Path(p).name, bg=BG, fg=INK, anchor="w",
+                     width=34).pack(side="left")
+            lbl = tk.Label(row, text=state["book_voices"].get(p) or "(main voice)",
+                           bg=BG, fg=MUTED, anchor="w")
+            lbl.pack(side="left", padx=8)
+            labels[p] = lbl
+            tk.Button(row, text="Change...", bg=PANEL, fg=CYAN,
+                      activebackground=PANEL, activeforeground=CYAN, relief="flat",
+                      padx=8, pady=1,
+                      command=lambda path=p: open_voice_picker(
+                          lambda name, path=path: set_book_voice(path, name))
+                      ).pack(side="right", padx=(4, 0))
+            tk.Button(row, text="Reset", bg=PANEL, fg=MUTED,
+                      activebackground=PANEL, activeforeground=INK, relief="flat",
+                      padx=8, pady=1,
+                      command=lambda path=p: clear_book_voice(path)).pack(side="right")
+        tk.Button(win, text="Done", command=win.destroy, bg=PANEL, fg=GOLD,
+                  activebackground=PANEL, activeforeground=GOLD, relief="flat",
+                  padx=16, pady=4).pack(pady=10)
+
+    tk.Button(vrow, text="Narrators...", command=open_narrators,
+              bg=PANEL, fg=MUTED, activebackground=PANEL, activeforeground=INK,
+              relief="flat", padx=10, pady=2).pack(side="left", padx=(6, 0))
 
     # formats
     frow = tk.Frame(frame, bg=BG); frow.pack(fill="x", pady=(6, 0))
@@ -441,9 +496,14 @@ def main():
         go_btn.configure(state="disabled", text="Working...")
         def task():
             try:
-                convert(state["file"], state["outdir"], title_e.get(), author_e.get(),
+                files = state["file"]
+                bv = None
+                if isinstance(files, list) and len(files) > 1 and state["book_voices"]:
+                    bv = [state["book_voices"].get(p) for p in files]
+                convert(files, state["outdir"], title_e.get(), author_e.get(),
                         theme_var.get(), formats, lambda m: root.after(0, log, m),
-                        voice=voice_state["name"], rate=rate_var.get())
+                        voice=voice_state["name"], rate=rate_var.get(),
+                        book_voices=bv)
                 root.after(0, open_output)
             except ModuleNotFoundError as e:
                 root.after(0, log, f"Missing piece: {e.name}. Press the Install/update requirements button, then Convert again.")

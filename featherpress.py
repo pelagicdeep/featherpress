@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -663,16 +663,17 @@ def strip_book_front_matter(blocks):
     return blocks
 
 
-def load_manuscripts(paths, keep_front_matter: bool = False) -> list:
+def load_manuscripts(paths, keep_front_matter: bool = False, voices=None) -> list:
     """Load one manuscript, or combine several into one continuous stream:
     each book's own title page is stripped and a 'book' marker block sits at
     every seam — an unspoken chapter mark in the audiobook, a top-level
-    heading in the visual outputs."""
+    heading in the visual outputs. voices, if given, is a list parallel to
+    paths: a per-book narrator override (None = the main voice)."""
     paths = [Path(p) for p in paths]
     if len(paths) == 1:
         return load_manuscript(paths[0], keep_front_matter)
     combined = []
-    for p in paths:
+    for i, p in enumerate(paths):
         blocks = load_manuscript(p, keep_front_matter)
         stripped = strip_book_front_matter(blocks)
         h1 = next((b for b in blocks if b.kind == "h1"), None)
@@ -680,7 +681,8 @@ def load_manuscripts(paths, keep_front_matter: bool = False) -> list:
             title = strip_inline(h1.text)  # the stripped title page names the book
         else:
             title = p.stem.replace("-", " ").replace("_", " ").title()
-        combined.append(Block("book", title))
+        voice = voices[i] if voices else None
+        combined.append(Block("book", title, items=[voice] if voice else []))
         combined.extend(stripped)
     return combined
 
@@ -961,15 +963,17 @@ PAUSE_RE = re.compile(r"^<<pause:([\d.]+)>>$")
 
 
 def tts_script(blocks, title: str, author: str, pauses: bool = False):
-    """Chapterized narration script: [(chapter_title, lines), ...].
+    """Chapterized narration script: [(chapter_title, lines, voice), ...]
+    where voice is a per-book narrator override or None for the main voice.
     Shared by the TTS text file and the voiced audiobook. With pauses=True,
     `<<pause:seconds>>` sentinel lines mark where the audiobook should hold
     a beat: scene breaks, heading turns, quotes."""
     opening = [tts_clean(title)]
     if author:
         opening.append(f"Written by {tts_clean(author)}")
-    chapters = [[tts_clean(title).rstrip("."), opening]]
+    chapters = [[tts_clean(title).rstrip("."), opening, None]]
     chapter_n = 0
+    cur_voice = None
 
     def pause(sec):
         if pauses:
@@ -978,13 +982,15 @@ def tts_script(blocks, title: str, author: str, pauses: bool = False):
     for b in blocks:
         if b.kind == "book":
             # a seam between combined books: an audiobook chapter mark that
-            # carries the book's title but speaks nothing, so the text flows
-            chapters.append([tts_clean(b.text).rstrip(".!?"), []])
+            # carries the book's title but speaks nothing, so the text flows.
+            # items may carry this book's narrator override.
+            cur_voice = b.items[0] if b.items else None
+            chapters.append([tts_clean(b.text).rstrip(".!?"), [], cur_voice])
             continue
         if b.kind == "h1":
             chapter_n += 1
             heading = f"Chapter {chapter_n}. {tts_clean(b.text)}"
-            chapters.append([heading.rstrip(".!?"), [heading, ""]])
+            chapters.append([heading.rstrip(".!?"), [heading, ""], cur_voice])
             pause(1.0)
             continue
         lines = chapters[-1][1]
@@ -1011,7 +1017,7 @@ def tts_script(blocks, title: str, author: str, pauses: bool = False):
             lines.append("")
         else:
             lines += [tts_clean(b.text), ""]
-    return [(t, lines) for t, lines in chapters
+    return [(t, lines, v) for t, lines, v in chapters
             if any(l.strip() and not PAUSE_RE.match(l.strip()) for l in lines)]
 
 
@@ -1042,7 +1048,8 @@ def _segments(lines):
 
 
 def build_tts(blocks, out_path: Path, title: str, author: str):
-    parts = ["\n".join(lines).strip() for _, lines in tts_script(blocks, title, author)]
+    parts = ["\n".join(lines).strip()
+             for _, lines, _ in tts_script(blocks, title, author)]
     out_path.write_text("\n\n\n".join(parts) + "\n", encoding="utf-8")
 
 
@@ -1250,7 +1257,12 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
     import json
     import shutil
 
+    overrides = {b.items[0] for b in blocks if b.kind == "book" and b.items}
     piper = is_piper_voice(voice_name)
+    if overrides and (piper or any(is_piper_voice(v) for v in overrides)):
+        raise ValueError(
+            "Per-book narrators currently need Edge voices for every book "
+            "(Piper cannot mix with other voices in one audiobook).")
     voice = _load_voice(voice_name) if piper else None
     ffmpeg = _find_ffmpeg()
 
@@ -1263,9 +1275,11 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
     # work folder so an interrupted run picks up where it stopped. Pause
     # sentinels become real silence between chunks (needs ffmpeg).
     chapters = tts_script(blocks, title, author, pauses=bool(ffmpeg))
-    ch_segs = [(ch_title, _segments(lines)) for ch_title, lines in chapters]
-    fingerprint = "\n".join(f"{text}|{p}" for _, segs in ch_segs for text, p in segs)
-    manifest = {"voice": voice_name, "rate": rate, "version": 2,
+    ch_segs = [(ch_title, _segments(lines), v or voice_name)
+               for ch_title, lines, v in chapters]
+    fingerprint = "\n".join(f"{v}|{text}|{p}"
+                            for _, segs, v in ch_segs for text, p in segs)
+    manifest = {"voice": voice_name, "rate": rate, "version": 3,
                 "hash": hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:16]}
     work = out_path.parent / f".{out_path.name}_work"
     mpath = work / "manifest.json"
@@ -1293,7 +1307,7 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
     files = []          # (chapter_index, path) in final play order
     jobs = []
     voiced_total = 0
-    for i, (_, segs) in enumerate(ch_segs):
+    for i, (_, segs, ch_voice) in enumerate(ch_segs):
         if ffmpeg and i > 0:
             files.append((i, silence(2.0)))  # a breath at every book/chapter turn
         for s, (text, pause_after) in enumerate(segs):
@@ -1302,7 +1316,7 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
                 files.append((i, part))
                 voiced_total += 1
                 if not (part.exists() and part.stat().st_size > 0):
-                    jobs.append((chunk, voice_name, part))
+                    jobs.append((chunk, ch_voice, part))
             if ffmpeg and pause_after:
                 files.append((i, silence(pause_after)))
     if len(jobs) < voiced_total:
@@ -1319,7 +1333,7 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
         meta = [";FFMETADATA1", f"title={_ffmeta_escape(title)}",
                 f"artist={_ffmeta_escape(author or '')}"]
         t = 0.0
-        for i, (ch_title, _) in enumerate(ch_segs):
+        for i, (ch_title, _, _) in enumerate(ch_segs):
             dur = sum(d for (ci, _), d in zip(files, durs) if ci == i)
             meta += ["[CHAPTER]", "TIMEBASE=1/1000",
                      f"START={int(t * 1000)}", f"END={int((t + dur) * 1000)}",
@@ -1341,7 +1355,7 @@ def build_audio(blocks, out_path: Path, title: str, author: str,
     progress_cb("    ffmpeg not found: writing per-chapter mp3 files")
     out = out_path
     out.mkdir(parents=True, exist_ok=True)
-    for i, (ch_title, _) in enumerate(ch_segs):
+    for i, (ch_title, _, _) in enumerate(ch_segs):
         safe = re.sub(r"[^\w\- ]+", "", ch_title)[:60].strip() or f"part {i}"
         with open(out / f"{i:03d} - {safe}.mp3", "wb") as dst:
             for ci, p in files:
@@ -1361,7 +1375,7 @@ def _build_audio_piper(chapters, out_path: Path, title: str, author: str,
     with tempfile.TemporaryDirectory(prefix="featherpress_audio_") as td:
         tdir = Path(td)
         parts = []
-        for i, (ch_title, lines) in enumerate(chapters):
+        for i, (ch_title, lines, _) in enumerate(chapters):
             text = "\n".join(l for l in lines if l.strip())
             part = tdir / f"ch_{i:03d}.wav"
             _synth_piper(voice, text, part, rate)
@@ -1536,6 +1550,10 @@ def main():
                     help="Audiobook voice: an Edge neural voice like en-US-AriaNeural "
                          "(online, natural) or a Piper voice like en_US-lessac-medium "
                          f"(offline). Default: {DEFAULT_VOICE}")
+    ap.add_argument("--book-voice", action="append", default=[], metavar="MATCH=VOICE",
+                    help="In combine mode, use a different narrator for books whose "
+                         "filename contains MATCH (repeatable), e.g. "
+                         "--book-voice feather=en-GB-RyanNeural")
     ap.add_argument("--rate", type=int, default=0, metavar="PCT",
                     help="Speech speed adjustment in percent; negative is slower "
                          "(for example -15). Default: 0")
@@ -1555,13 +1573,27 @@ def main():
     outdir.mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"\W+", "-", title.lower()).strip("-") or "book"
 
+    book_voices = None
+    if args.book_voice:
+        specs = []
+        for spec in args.book_voice:
+            if "=" not in spec:
+                sys.exit(f"--book-voice needs MATCH=VOICE, got: {spec}")
+            m, v = spec.split("=", 1)
+            specs.append((m.lower(), v))
+            if not any(m.lower() in s.stem.lower() for s in srcs):
+                sys.exit(f"--book-voice '{m}' matches none of the input files")
+        book_voices = [next((v for m, v in specs if m in s.stem.lower()), None)
+                       for s in srcs]
+
     if len(srcs) == 1:
         print(f"Reading {srcs[0].name} ...")
     else:
         print(f"Combining {len(srcs)} manuscripts:")
-        for s in srcs:
-            print(f"  + {s.name}")
-    blocks = load_manuscripts(srcs, args.keep_front_matter)
+        for i, s in enumerate(srcs):
+            narrator = f"  (narrator: {book_voices[i]})" if book_voices and book_voices[i] else ""
+            print(f"  + {s.name}{narrator}")
+    blocks = load_manuscripts(srcs, args.keep_front_matter, book_voices)
     print(f"  parsed {len(blocks)} blocks")
 
     wanted = {f.strip() for f in args.formats.lower().split(",")}

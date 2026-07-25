@@ -4,6 +4,17 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-07-25
+
+### Added
+- Per-book narrators in combine mode ("different instruments"): give any
+  volume its own Edge voice while the rest read in the main voice. CLI:
+  repeatable `--book-voice MATCH=VOICE`, where MATCH is a filename
+  fragment (e.g. `--book-voice feather=en-GB-RyanNeural`). GUI: the
+  "Narrators..." button lists the selected books, each with its own
+  full-catalog voice picker. Mixing Piper into a multi-narrator book is
+  rejected with a clear error.
+
 ## [1.8.0] - 2026-07-22
 
 ### Added
