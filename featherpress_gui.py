@@ -83,7 +83,7 @@ def play_media(path):
 # ---------------------------------------------------------------------------
 
 def convert(input_path, outdir, title, author, theme, formats, status_cb,
-            voice=DEFAULT_VOICE, rate=0, book_voices=None):
+            voice=DEFAULT_VOICE, rate=0, book_voices=None, book_font="dyslexic"):
     """Run the pipeline. status_cb(str) receives progress lines.
     Returns the output directory Path on success, raises on failure."""
     import featherpress as fp
@@ -109,12 +109,13 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb,
     status_cb(f"Parsed {len(blocks)} blocks.")
 
     if "pdf" in formats:
-        p = outdir / f"{stem}_opendyslexic_{theme}.pdf"
-        fp.build_pdf(blocks, p, title, author, theme)
+        fontpart = "opendyslexic" if book_font == "dyslexic" else "standard"
+        p = outdir / f"{stem}_{fontpart}_{theme}.pdf"
+        fp.build_pdf(blocks, p, title, author, theme, book_font)
         status_cb(f"PDF written: {p.name}")
     if "epub" in formats:
         p = outdir / f"{stem}_accessible.epub"
-        fp.build_epub(blocks, p, title, author, theme)
+        fp.build_epub(blocks, p, title, author, theme, book_font)
         status_cb(f"EPUB written: {p.name}")
     if "tts" in formats:
         p = outdir / f"{stem}_audiobook_text.txt"
@@ -122,7 +123,7 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb,
         status_cb(f"Audiobook text written: {p.name}")
     if "html" in formats:
         p = outdir / f"{stem}_reader.html"
-        fp.build_html(blocks, p, title, author)
+        fp.build_html(blocks, p, title, author, book_font)
         status_cb(f"HTML reader written: {p.name}")
     if "audio" in formats:
         status_cb("Voicing audiobook (a full book can take a while) ...")
@@ -297,6 +298,15 @@ def main():
     styled_label(trow, "Theme:").pack(side="left")
     for val, lab in (("dark", "Dark"), ("cream", "Cream")):
         tk.Radiobutton(trow, text=lab, value=val, variable=theme_var,
+                       bg=BG, fg=INK, selectcolor=PANEL,
+                       activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
+
+    # book font: what the PDF/EPUB/HTML outputs use (dyslexic-first default)
+    book_font_var = tk.StringVar(value="dyslexic")
+    bfrow = tk.Frame(frame, bg=BG); bfrow.pack(fill="x", pady=(6, 0))
+    styled_label(bfrow, "Book font:").pack(side="left")
+    for val, lab in (("dyslexic", "OpenDyslexic"), ("standard", "Standard")):
+        tk.Radiobutton(bfrow, text=lab, value=val, variable=book_font_var,
                        bg=BG, fg=INK, selectcolor=PANEL,
                        activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
 
@@ -612,7 +622,7 @@ def main():
                 convert(files, state["outdir"], title_e.get(), author_e.get(),
                         theme_var.get(), formats, lambda m: root.after(0, log, m),
                         voice=voice_state["name"], rate=rate_var.get(),
-                        book_voices=bv)
+                        book_voices=bv, book_font=book_font_var.get())
                 root.after(0, open_output)
             except ModuleNotFoundError as e:
                 root.after(0, log, f"Missing piece: {e.name}. Press the Install requirements button, then Convert again.")

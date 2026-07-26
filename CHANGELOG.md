@@ -4,6 +4,18 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.11.0] - 2026-07-26
+
+### Added
+- The output font is now a choice: `--font dyslexic` (default) or
+  `--font standard` on the CLI, and a "Book font" selector in the GUI.
+  OpenDyslexic remains the dyslexia-first default; standard mode gives
+  non-dyslexic readers a conventional book. In standard mode the PDF
+  uses clean built-in Helvetica (named `*_standard_<theme>.pdf`), the
+  EPUB embeds no fonts so the reading system's own font and the
+  reader's overrides rule, and the HTML reader simply starts on the
+  Standard side of its live font toggle.
+
 ## [1.10.1] - 2026-07-26
 
 ### Fixed

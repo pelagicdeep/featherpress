@@ -10,6 +10,8 @@ Drop in a `.md`, `.txt`, `.docx`, `.pdf`, or `.epub` file and get:
 4. **Voiced audiobook**: the narration text read aloud and stitched into an `.m4b` with chapter markers, title, and author metadata. Voices come from Microsoft's Edge neural catalog by default (natural-sounding, 300+ voices across dozens of languages, needs internet) with Piper as the fully offline fallback. Speech speed is adjustable. Opt-in (`--formats audio` or the AUDIO checkbox) because voicing a whole book takes a while.
 5. **Standalone HTML reader**: a single self-contained file with fonts embedded, live dark/cream theme toggle, a Dyslexic/Standard font toggle, font size and line spacing controls, keyboard accessible, reduced-motion aware.
 
+OpenDyslexic is the default typeface everywhere, but every visual output can be produced in a standard reading font instead (`--font standard`, or the "Book font" choice in the GUI): the PDF switches to Helvetica, the EPUB embeds no fonts so the e-reader's own font rules, and the HTML reader starts on the Standard side of its toggle. Accessible by default, welcoming to everyone.
+
 ## Setup
 
 Requires Python 3.9+.
@@ -39,6 +41,7 @@ python featherpress.py notes.txt --formats pdf,tts
 | `--title` | Book title | Derived from filename |
 | `--author` | Author name | none |
 | `--theme` | `cream` or `dark` (PDF and EPUB) | `cream` |
+| `--font` | `dyslexic` (OpenDyslexic) or `standard` for PDF/EPUB/HTML | `dyslexic` |
 | `--formats` | Any of `pdf,epub,tts,html,audio` | `pdf,epub,tts,html` |
 | `--voice` | Audiobook voice, Edge or Piper (see below) | `en-US-AndrewMultilingualNeural` |
 | `--rate` | Speech speed in percent, negative = slower | `0` |

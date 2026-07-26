@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.10.1"
+__version__ = "1.11.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -710,7 +710,8 @@ def load_manuscript(path: Path, keep_front_matter: bool = False) -> list:
 # Output 1: OpenDyslexic PDF
 # ---------------------------------------------------------------------------
 
-def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
+def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str,
+              font: str = "dyslexic"):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
     from reportlab.lib.colors import HexColor
@@ -725,13 +726,18 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
 
     blocks = _books_as_h1(blocks)
     t = THEMES[theme_name]
-    pdfmetrics.registerFont(TTFont("OD", str(FONT_DIR / FONTS["regular"])))
-    pdfmetrics.registerFont(TTFont("OD-Bold", str(FONT_DIR / FONTS["bold"])))
-    pdfmetrics.registerFont(TTFont("OD-Italic", str(FONT_DIR / FONTS["italic"])))
-    pdfmetrics.registerFont(TTFont("OD-BoldItalic", str(FONT_DIR / FONTS["bolditalic"])))
-    pdfmetrics.registerFontFamily(
-        "OD", normal="OD", bold="OD-Bold", italic="OD-Italic", boldItalic="OD-BoldItalic"
-    )
+    if font == "standard":
+        # built-in Helvetica family: no embedding, familiar to non-dyslexic readers
+        f_reg, f_bold, f_italic = "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+    else:
+        pdfmetrics.registerFont(TTFont("OD", str(FONT_DIR / FONTS["regular"])))
+        pdfmetrics.registerFont(TTFont("OD-Bold", str(FONT_DIR / FONTS["bold"])))
+        pdfmetrics.registerFont(TTFont("OD-Italic", str(FONT_DIR / FONTS["italic"])))
+        pdfmetrics.registerFont(TTFont("OD-BoldItalic", str(FONT_DIR / FONTS["bolditalic"])))
+        pdfmetrics.registerFontFamily(
+            "OD", normal="OD", bold="OD-Bold", italic="OD-Italic", boldItalic="OD-BoldItalic"
+        )
+        f_reg, f_bold, f_italic = "OD", "OD-Bold", "OD-Italic"
 
     page_w, page_h = letter
     margin = 1.1 * inch  # wide margins keep line length near 60 characters
@@ -739,23 +745,23 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
     ink, heading, accent = HexColor(t["ink"]), HexColor(t["heading"]), HexColor(t["accent"])
 
     body = ParagraphStyle(
-        "body", fontName="OD", fontSize=12.5, leading=23, textColor=ink,
+        "body", fontName=f_reg, fontSize=12.5, leading=23, textColor=ink,
         alignment=TA_LEFT, spaceAfter=14,
     )
     styles = {
         "p": body,
-        "h1": ParagraphStyle("h1", parent=body, fontName="OD-Bold", fontSize=20,
+        "h1": ParagraphStyle("h1", parent=body, fontName=f_bold, fontSize=20,
                              leading=30, textColor=heading, spaceBefore=26, spaceAfter=16),
-        "h2": ParagraphStyle("h2", parent=body, fontName="OD-Bold", fontSize=16,
+        "h2": ParagraphStyle("h2", parent=body, fontName=f_bold, fontSize=16,
                              leading=26, textColor=heading, spaceBefore=20, spaceAfter=12),
-        "h3": ParagraphStyle("h3", parent=body, fontName="OD-Bold", fontSize=13.5,
+        "h3": ParagraphStyle("h3", parent=body, fontName=f_bold, fontSize=13.5,
                              leading=24, textColor=accent, spaceBefore=16, spaceAfter=10),
-        "quote": ParagraphStyle("quote", parent=body, fontName="OD-Italic",
+        "quote": ParagraphStyle("quote", parent=body, fontName=f_italic,
                                 leftIndent=24, textColor=HexColor(t["muted"]),
                                 borderColor=HexColor(t["quote_bar"]), borderWidth=0,
                                 spaceBefore=6, spaceAfter=14),
         "li": ParagraphStyle("li", parent=body, spaceAfter=8),
-        "title": ParagraphStyle("title", parent=body, fontName="OD-Bold", fontSize=26,
+        "title": ParagraphStyle("title", parent=body, fontName=f_bold, fontSize=26,
                                 leading=38, textColor=heading, spaceAfter=10),
         "author": ParagraphStyle("author", parent=body, fontSize=14, leading=24,
                                  textColor=HexColor(t["muted"]), spaceAfter=30),
@@ -765,7 +771,7 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
         canvas.saveState()
         canvas.setFillColor(HexColor(t["bg"]))
         canvas.rect(0, 0, page_w, page_h, stroke=0, fill=1)
-        canvas.setFont("OD", 9)
+        canvas.setFont(f_reg, 9)
         canvas.setFillColor(HexColor(t["muted"]))
         canvas.drawCentredString(page_w / 2, 0.55 * inch, str(canvas.getPageNumber()))
         canvas.restoreState()
@@ -790,7 +796,7 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
             bt = "bullet" if b.kind == "li-ul" else "1"
             items = [ListItem(Paragraph(i, styles["li"]), leftIndent=28) for i in b.items]
             story.append(ListFlowable(items, bulletType=bt, bulletColor=accent,
-                                      bulletFontName="OD", start="1"))
+                                      bulletFontName=f_reg, start="1"))
             story.append(Spacer(1, 8))
         elif b.kind == "table":
             for row in b.items:
@@ -809,24 +815,27 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str):
 # Output 2: high-contrast EPUB
 # ---------------------------------------------------------------------------
 
-EPUB_CSS = """
-@font-face {{
+EPUB_FONT_FACES = """
+@font-face {
   font-family: "OpenDyslexic";
   src: url(fonts/OpenDyslexic-Regular.ttf);
   font-weight: normal; font-style: normal;
-}}
-@font-face {{
+}
+@font-face {
   font-family: "OpenDyslexic";
   src: url(fonts/OpenDyslexic-Bold.ttf);
   font-weight: bold; font-style: normal;
-}}
-@font-face {{
+}
+@font-face {
   font-family: "OpenDyslexic";
   src: url(fonts/OpenDyslexic-Italic.ttf);
   font-weight: normal; font-style: italic;
-}}
+}
+"""
+
+EPUB_CSS = """
 body {{
-  font-family: "OpenDyslexic", sans-serif;
+  font-family: {font_family};
   background: {bg}; color: {ink};
   line-height: 1.8; text-align: left;
   margin: 4% 6%;
@@ -885,7 +894,8 @@ def split_chapters(blocks):
     return chapters
 
 
-def build_epub(blocks, out_path: Path, title: str, author: str, theme_name: str):
+def build_epub(blocks, out_path: Path, title: str, author: str, theme_name: str,
+               font: str = "dyslexic"):
     from ebooklib import epub
 
     blocks = _books_as_h1(blocks)
@@ -897,16 +907,23 @@ def build_epub(blocks, out_path: Path, title: str, author: str, theme_name: str)
     if author:
         book.add_author(author)
 
-    for key in ("regular", "bold", "italic"):
-        fname = FONTS[key]
-        book.add_item(epub.EpubItem(
-            uid=f"font-{key}", file_name=f"fonts/{fname}",
-            media_type="font/ttf", content=(FONT_DIR / fname).read_bytes(),
-        ))
+    if font == "standard":
+        # no embedded fonts: the reading system's own font (and the reader's
+        # override) rules, which is what non-dyslexic readers expect
+        css_text = EPUB_CSS.format(**t, font_family="serif")
+    else:
+        for key in ("regular", "bold", "italic"):
+            fname = FONTS[key]
+            book.add_item(epub.EpubItem(
+                uid=f"font-{key}", file_name=f"fonts/{fname}",
+                media_type="font/ttf", content=(FONT_DIR / fname).read_bytes(),
+            ))
+        css_text = EPUB_FONT_FACES + EPUB_CSS.format(
+            **t, font_family='"OpenDyslexic", sans-serif')
 
     css = epub.EpubItem(
         uid="style", file_name="style/main.css", media_type="text/css",
-        content=EPUB_CSS.format(**t).encode(),
+        content=css_text.encode(),
     )
     book.add_item(css)
 
@@ -1520,7 +1537,8 @@ __CONTENT__
 """
 
 
-def build_html(blocks, out_path: Path, title: str, author: str):
+def build_html(blocks, out_path: Path, title: str, author: str,
+               font: str = "dyslexic"):
     blocks = _books_as_h1(blocks)
     font_reg = base64.b64encode((FONT_DIR / FONTS["regular"]).read_bytes()).decode()
     font_bold = base64.b64encode((FONT_DIR / FONTS["bold"]).read_bytes()).decode()
@@ -1533,6 +1551,12 @@ def build_html(blocks, out_path: Path, title: str, author: str):
             .replace("__FONT_REG__", font_reg)
             .replace("__FONT_BOLD__", font_bold)
             .replace("__CONTENT__", "\n".join(content)))
+    if font == "standard":
+        # same live toggle, just starting on the standard side
+        page = (page
+                .replace("<body>", '<body class="stdfont">')
+                .replace('id="fontBtn" aria-pressed="false">Font: Dyslexic',
+                         'id="fontBtn" aria-pressed="true">Font: Standard'))
     out_path.write_text(page, encoding="utf-8")
 
 
@@ -1551,6 +1575,9 @@ def main():
     ap.add_argument("--author", default="", help="Author name")
     ap.add_argument("--theme", choices=list(THEMES), default="cream",
                     help="PDF and EPUB color theme (default: cream)")
+    ap.add_argument("--font", choices=["dyslexic", "standard"], default="dyslexic",
+                    help="Output font for PDF/EPUB/HTML: OpenDyslexic (default) "
+                         "or the standard reading font")
     ap.add_argument("--formats", default="pdf,epub,tts,html",
                     help="Comma list of outputs: pdf,epub,tts,html,audio "
                          "(audio is opt-in; voicing a whole book takes a while)")
@@ -1606,12 +1633,13 @@ def main():
 
     wanted = {f.strip() for f in args.formats.lower().split(",")}
     if "pdf" in wanted:
-        p = outdir / f"{stem}_opendyslexic_{args.theme}.pdf"
-        build_pdf(blocks, p, title, args.author, args.theme)
+        fontpart = "opendyslexic" if args.font == "dyslexic" else "standard"
+        p = outdir / f"{stem}_{fontpart}_{args.theme}.pdf"
+        build_pdf(blocks, p, title, args.author, args.theme, args.font)
         print(f"  PDF   -> {p}")
     if "epub" in wanted:
         p = outdir / f"{stem}_accessible.epub"
-        build_epub(blocks, p, title, args.author, args.theme)
+        build_epub(blocks, p, title, args.author, args.theme, args.font)
         print(f"  EPUB  -> {p}")
     if "tts" in wanted:
         p = outdir / f"{stem}_audiobook_text.txt"
@@ -1619,7 +1647,7 @@ def main():
         print(f"  TTS   -> {p}")
     if "html" in wanted:
         p = outdir / f"{stem}_reader.html"
-        build_html(blocks, p, title, args.author)
+        build_html(blocks, p, title, args.author, args.font)
         print(f"  HTML  -> {p}")
     if "audio" in wanted:
         print("  voicing audiobook ...")
