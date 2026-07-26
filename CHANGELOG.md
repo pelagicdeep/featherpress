@@ -4,6 +4,24 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] - 2026-07-26
+
+### Added
+- Full version history in the app: the GUI's "Version history" button
+  (formerly "What's new") opens the complete changelog in a scrollable
+  window, so the running list of changes is visible without leaving the
+  tool.
+- Interface accessibility for the GUI itself: a font toggle between
+  OpenDyslexic (bundled, loaded privately, no install needed) and the
+  standard system font, plus a Normal/Large text size toggle for low
+  vision. Sizes are driven by named fonts so every widget, list row, and
+  window scales together; the window and pickers grow with the text so
+  nothing clips. Choices persist in gui_settings.json (gitignored).
+- The standalone HTML reader gains the same font choice: a Font
+  Dyslexic/Standard toggle beside the theme button.
+- PLAN.md: the living working plan (shipped, decisions, next up, gaps),
+  updated as work lands so an interrupted session costs nothing.
+
 ## [1.9.0] - 2026-07-25
 
 ### Added

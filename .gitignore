@@ -11,3 +11,6 @@ __pycache__/
 # runtime logs
 logs/
 *.log
+
+# local interface preferences
+gui_settings.json

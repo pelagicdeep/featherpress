@@ -28,6 +28,38 @@ OFFLINE_VOICES = [
 
 DEFAULT_VOICE = "en-US-AndrewMultilingualNeural"
 
+SETTINGS_PATH = Path(__file__).resolve().parent / "gui_settings.json"
+DEFAULT_SETTINGS = {"dyslexic_font": True, "large_text": False}
+
+
+def load_settings():
+    import json
+    try:
+        return {**DEFAULT_SETTINGS,
+                **json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))}
+    except (OSError, json.JSONDecodeError):
+        return dict(DEFAULT_SETTINGS)
+
+
+def save_settings(settings):
+    import json
+    try:
+        SETTINGS_PATH.write_text(json.dumps(settings), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _register_fonts():
+    """Make the bundled OpenDyslexic faces available to tkinter.
+    Windows: loaded as private process fonts, no install needed."""
+    import sys
+    fonts = Path(__file__).resolve().parent / "fonts"
+    if sys.platform == "win32" and fonts.is_dir():
+        import ctypes
+        FR_PRIVATE = 0x10
+        for f in fonts.glob("OpenDyslexic-*.ttf"):
+            ctypes.windll.gdi32.AddFontResourceExW(str(f), FR_PRIVATE, 0)
+
 
 def play_media(path):
     """Play a short clip without blocking."""
@@ -114,11 +146,41 @@ def main():
 
     BG, PANEL, INK, CYAN, GOLD, MUTED = "#0c1015", "#141a22", "#e6e3dc", "#3fe0d0", "#d9b84a", "#9a968c"
 
+    import tkinter.font as tkfont
+
     root = tk.Tk()
     root.title(f"Featherpress v{VERSION}")
     root.configure(bg=BG)
-    root.geometry("560x600")
-    root.minsize(480, 560)
+
+    settings = load_settings()
+    _register_fonts()
+    dys_ok = "OpenDyslexic" in set(tkfont.families(root))
+    body_font = tkfont.Font(root=root)
+    bold_font = tkfont.Font(root=root, weight="bold")
+    head_font = tkfont.Font(root=root, weight="bold")
+    root.option_add("*Font", body_font)
+
+    def apply_typography():
+        fam = "OpenDyslexic" if (settings["dyslexic_font"] and dys_ok) else "Segoe UI"
+        base = 13 if settings["large_text"] else 10
+        body_font.configure(family=fam, size=base)
+        bold_font.configure(family=fam, size=base + 1)
+        head_font.configure(family=fam, size=base + 5)
+        style = ttk.Style(root)
+        style.configure(".", font=body_font)
+        style.configure("Treeview", font=body_font,
+                        rowheight=int(body_font.metrics("linespace") * 1.35))
+        style.configure("Treeview.Heading", font=body_font)
+        # the window grows with the text so nothing clips at any size
+        if settings["large_text"]:
+            root.minsize(640, 720)
+            if root.winfo_width() < 640:
+                root.geometry("680x760")
+        else:
+            root.minsize(500, 600)
+
+    root.geometry("560x620")
+    apply_typography()
 
     state = {"file": None, "outdir": Path(__file__).resolve().parent / "output",
              "book_voices": {}}
@@ -129,33 +191,74 @@ def main():
     frame = tk.Frame(root, bg=BG, padx=18, pady=14)
     frame.pack(fill="both", expand=True)
 
-    def whats_new():
+    def show_history():
         path = Path(__file__).resolve().parent / "CHANGELOG.md"
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            content = path.read_text(encoding="utf-8")
         except OSError:
             log("No CHANGELOG.md found next to featherpress_gui.py.")
             return
-        section, started = [], False
-        for line in lines:
-            if line.startswith("## "):
-                if started:
-                    break
-                started = True
-            if started and line.strip():
-                section.append(line.lstrip("#").strip())
-        log("\n".join(section) if section else "CHANGELOG.md has no entries yet.")
+        win = tk.Toplevel(root)
+        win.title("Featherpress version history")
+        win.configure(bg=BG)
+        win.geometry("840x680" if settings["large_text"] else "660x560")
+        win.transient(root)
+        wrap = tk.Frame(win, bg=BG, padx=10, pady=10)
+        wrap.pack(fill="both", expand=True)
+        txt = tk.Text(wrap, bg=PANEL, fg=INK, relief="flat", wrap="word",
+                      padx=14, pady=12, font=body_font)
+        sc = ttk.Scrollbar(wrap, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sc.set)
+        txt.insert("1.0", content)
+        txt.configure(state="disabled")
+        txt.pack(side="left", fill="both", expand=True)
+        sc.pack(side="left", fill="y")
 
     head = tk.Frame(frame, bg=BG); head.pack(fill="x")
     tk.Label(head, text="FEATHERPRESS", bg=BG, fg=CYAN,
-             font=("Verdana", 14, "bold")).pack(side="left")
+             font=head_font).pack(side="left")
     tk.Label(head, text=f"v{VERSION}", bg=BG, fg=MUTED).pack(
         side="left", padx=(8, 0), pady=(3, 0))
-    tk.Button(head, text="What's new", command=whats_new, bg=BG, fg=MUTED,
+    tk.Button(head, text="Version history", command=show_history, bg=BG, fg=MUTED,
               activebackground=BG, activeforeground=INK, relief="flat",
               bd=0, cursor="hand2").pack(side="right")
     tk.Label(frame, text="One manuscript in. Five accessible formats out.",
-             bg=BG, fg=MUTED).pack(anchor="w", pady=(0, 10))
+             bg=BG, fg=MUTED).pack(anchor="w", pady=(0, 6))
+
+    # interface preferences: dyslexic or standard font, normal or large text
+    irow = tk.Frame(frame, bg=BG); irow.pack(fill="x", pady=(0, 8))
+    styled_label(irow, "Interface:").pack(side="left")
+
+    def toggle_font():
+        settings["dyslexic_font"] = not settings["dyslexic_font"]
+        save_settings(settings)
+        apply_typography()
+        refresh_toggle_labels()
+
+    def toggle_size():
+        settings["large_text"] = not settings["large_text"]
+        save_settings(settings)
+        apply_typography()
+        refresh_toggle_labels()
+
+    font_btn = tk.Button(irow, command=toggle_font, bg=PANEL, fg=INK,
+                         activebackground=PANEL, activeforeground=INK,
+                         relief="flat", padx=10, pady=2)
+    font_btn.pack(side="left", padx=(6, 4))
+    size_btn = tk.Button(irow, command=toggle_size, bg=PANEL, fg=INK,
+                         activebackground=PANEL, activeforeground=INK,
+                         relief="flat", padx=10, pady=2)
+    size_btn.pack(side="left")
+
+    def refresh_toggle_labels():
+        font_btn.configure(text="Font: " + (
+            "OpenDyslexic" if settings["dyslexic_font"] and dys_ok else "Standard"))
+        size_btn.configure(text="Text: " + (
+            "Large" if settings["large_text"] else "Normal"))
+
+    if not dys_ok:
+        font_btn.configure(state="disabled")
+    refresh_toggle_labels()
 
     # file picker (select several files to combine them into one book)
     file_var = tk.StringVar(value="No file chosen yet")
@@ -237,7 +340,7 @@ def main():
         win = tk.Toplevel(root)
         win.title("Choose a voice")
         win.configure(bg=BG)
-        win.geometry("680x540")
+        win.geometry("860x640" if settings["large_text"] else "680x540")
         win.transient(root)
 
         style = ttk.Style(win)
@@ -246,8 +349,9 @@ def main():
         except tk.TclError:
             pass
         style.configure("Treeview", background=PANEL, fieldbackground=PANEL,
-                        foreground=INK, rowheight=22)
+                        foreground=INK)
         style.configure("Treeview.Heading", background=BG, foreground=MUTED)
+        apply_typography()  # reassert fonts and row height after theme switch
 
         top = tk.Frame(win, bg=BG, padx=10, pady=8); top.pack(fill="x")
         tk.Label(top, text="Search:", bg=BG, fg=MUTED).pack(side="left")
@@ -435,7 +539,7 @@ def main():
     brow = tk.Frame(frame, bg=BG); brow.pack(fill="x")
     go_btn = tk.Button(brow, text="Convert", bg=PANEL, fg=GOLD,
                        activebackground=PANEL, activeforeground=GOLD,
-                       relief="flat", padx=20, pady=8, font=("Verdana", 11, "bold"))
+                       relief="flat", padx=20, pady=8, font=bold_font)
     go_btn.pack(side="left")
 
     def install_deps():

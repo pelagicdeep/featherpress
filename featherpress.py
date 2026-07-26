@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -1449,6 +1449,7 @@ body {
   letter-spacing:var(--spacing);
   transition:background .3s, color .3s;
 }
+body.stdfont { font-family:system-ui, 'Segoe UI', Arial, sans-serif; }
 main { max-width:42rem; margin:0 auto; padding:5.5rem 1.4rem 4rem; }
 h1,h2 { color:var(--heading); line-height:1.4; }
 h3 { color:var(--accent); }
@@ -1475,6 +1476,7 @@ hr { border:none; border-top:1px solid var(--accent); width:40%; margin:2.2em au
 <body>
 <nav id="toolbar" aria-label="Reading settings">
   <button id="themeBtn" aria-pressed="false">Theme: Dark</button>
+  <button id="fontBtn" aria-pressed="false">Font: Dyslexic</button>
   <button data-size="-1" aria-label="Smaller text">A-</button>
   <button data-size="1" aria-label="Larger text">A+</button>
   <button data-lh="-1" aria-label="Tighter lines">Lines-</button>
@@ -1492,6 +1494,12 @@ __CONTENT__
     var cream = body.classList.contains('cream');
     this.textContent = 'Theme: ' + (cream ? 'Cream' : 'Dark');
     this.setAttribute('aria-pressed', cream);
+  });
+  document.getElementById('fontBtn').addEventListener('click', function(){
+    body.classList.toggle('stdfont');
+    var std = body.classList.contains('stdfont');
+    this.textContent = 'Font: ' + (std ? 'Standard' : 'Dyslexic');
+    this.setAttribute('aria-pressed', std);
   });
   document.querySelectorAll('[data-size]').forEach(function(btn){
     btn.addEventListener('click', function(){

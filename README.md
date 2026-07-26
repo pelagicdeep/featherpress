@@ -8,7 +8,7 @@ Drop in a `.md`, `.txt`, `.docx`, `.pdf`, or `.epub` file and get:
 2. **Accessible EPUB**: OpenDyslexic fonts embedded, high-contrast CSS, chapters split automatically at every `# Heading 1`.
 3. **Audiobook-ready text**: formatting stripped, abbreviations expanded (Dr. becomes Doctor, e.g. becomes for example), symbols spoken (% becomes percent), chapter announcements added. Ready to feed straight into Piper or any TTS engine.
 4. **Voiced audiobook**: the narration text read aloud and stitched into an `.m4b` with chapter markers, title, and author metadata. Voices come from Microsoft's Edge neural catalog by default (natural-sounding, 300+ voices across dozens of languages, needs internet) with Piper as the fully offline fallback. Speech speed is adjustable. Opt-in (`--formats audio` or the AUDIO checkbox) because voicing a whole book takes a while.
-5. **Standalone HTML reader**: a single self-contained file with fonts embedded, live dark/cream theme toggle, font size and line spacing controls, keyboard accessible, reduced-motion aware.
+5. **Standalone HTML reader**: a single self-contained file with fonts embedded, live dark/cream theme toggle, a Dyslexic/Standard font toggle, font size and line spacing controls, keyboard accessible, reduced-motion aware.
 
 ## Setup
 
@@ -102,15 +102,16 @@ Terminal optional. Two other doors:
 
 **Drag and drop.** Drag any manuscript (or several at once) onto `featherpress_drop.bat` in File Explorer. Everything converts with defaults (dark theme, all formats, title from the filename) and the output folder opens itself. If something fails, the window stays open so you can read why.
 
-**The GUI.** Double-click `featherpress_gui.bat`. A small dark window: choose your file, optionally set title and author, pick a theme, a narration voice ("Choose voice..." opens the full searchable catalog; "Hear sample" speaks a preview line before you commit to a whole book), and a speech speed, press Convert. The output folder opens when it finishes. Built on tkinter, which ships with Python, so there is nothing extra to install.
+**The GUI.** Double-click `featherpress_gui.bat`. A small dark window: choose your file, optionally set title and author, pick a theme, a narration voice ("Choose voice..." opens the full searchable catalog; "Hear sample" speaks a preview line before you commit to a whole book), and a speech speed, press Convert. The interface itself is accessible: toggle between the OpenDyslexic and standard fonts, and between Normal and Large text (the window scales with it); both choices are remembered. The "Version history" button shows the full changelog in-app. The output folder opens when it finishes. Built on tkinter, which ships with Python, so there is nothing extra to install.
 
 Both use the exact same pipeline underneath; the terminal remains the power-user door for custom output paths and format selection.
 
 ## Version history
 
-Current version: **1.9.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md).
-The GUI shows its version in the header, and its "What's new" button prints the latest changes.
-`python featherpress.py --version` does the same on the command line.
+Current version: **1.10.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
+and is browsable in-app via the GUI's "Version history" button.
+`python featherpress.py --version` prints the version on the command line.
+The working plan (done, decided, next, gaps) lives in [PLAN.md](PLAN.md).
 
 ## Fonts
 
