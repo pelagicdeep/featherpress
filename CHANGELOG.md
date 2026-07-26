@@ -4,6 +4,16 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.10.1] - 2026-07-26
+
+### Fixed
+- With OpenDyslexic or Large text enabled, the Convert / Open output /
+  Install buttons could be pushed off the window edge and become
+  unclickable. The button row is now pinned to the bottom with packing
+  priority (it can never be clipped), the voice buttons moved to their
+  own row so long voice names cannot shove them off the right edge,
+  utility button labels shortened, and the Large window grew.
+
 ## [1.10.0] - 2026-07-26
 
 ### Added

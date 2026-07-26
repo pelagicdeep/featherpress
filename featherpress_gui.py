@@ -173,13 +173,13 @@ def main():
         style.configure("Treeview.Heading", font=body_font)
         # the window grows with the text so nothing clips at any size
         if settings["large_text"]:
-            root.minsize(640, 720)
-            if root.winfo_width() < 640:
-                root.geometry("680x760")
+            root.minsize(700, 780)
+            if root.winfo_width() < 700:
+                root.geometry("720x800")
         else:
-            root.minsize(500, 600)
+            root.minsize(520, 640)
 
-    root.geometry("560x620")
+    root.geometry("560x660")
     apply_typography()
 
     state = {"file": None, "outdir": Path(__file__).resolve().parent / "output",
@@ -306,6 +306,9 @@ def main():
     styled_label(vrow, "Voice:").pack(side="left")
     voice_lbl = tk.Label(vrow, text=voice_state["name"], bg=BG, fg=INK)
     voice_lbl.pack(side="left", padx=(6, 10))
+    # the voice buttons live on their own row so long voice names and wide
+    # fonts can never push them off the window edge
+    vbtns = tk.Frame(frame, bg=BG); vbtns.pack(fill="x", pady=(2, 0))
 
     def set_voice(name):
         voice_state["name"] = name
@@ -453,10 +456,10 @@ def main():
         apply_filter()
         threading.Thread(target=load_catalog, daemon=True).start()
 
-    tk.Button(vrow, text="Choose voice...", command=open_voice_picker,
+    tk.Button(vbtns, text="Choose voice...", command=open_voice_picker,
               bg=PANEL, fg=CYAN, activebackground=PANEL, activeforeground=CYAN,
               relief="flat", padx=10, pady=2).pack(side="left", padx=(0, 6))
-    hear_btn = tk.Button(vrow, text="Hear sample", bg=PANEL, fg=INK,
+    hear_btn = tk.Button(vbtns, text="Hear sample", bg=PANEL, fg=INK,
                          activebackground=PANEL, activeforeground=INK,
                          relief="flat", padx=10, pady=2)
     hear_btn.configure(command=lambda: sample_task(
@@ -509,7 +512,7 @@ def main():
                   activebackground=PANEL, activeforeground=GOLD, relief="flat",
                   padx=16, pady=4).pack(pady=10)
 
-    tk.Button(vrow, text="Narrators...", command=open_narrators,
+    tk.Button(vbtns, text="Narrators...", command=open_narrators,
               bg=PANEL, fg=MUTED, activebackground=PANEL, activeforeground=INK,
               relief="flat", padx=10, pady=2).pack(side="left", padx=(6, 0))
 
@@ -524,10 +527,10 @@ def main():
                        selectcolor=PANEL, activebackground=BG,
                        activeforeground=INK).pack(side="left", padx=4)
 
-    # status box
-    status = tk.Text(frame, height=9, bg=PANEL, fg=INK, relief="flat",
+    # status box: created here, packed after the button row below so the
+    # buttons keep their space when a wide font shrinks the free area
+    status = tk.Text(frame, height=8, bg=PANEL, fg=INK, relief="flat",
                      state="disabled", wrap="word")
-    status.pack(fill="both", expand=True, pady=(12, 8))
 
     def log(msg):
         status.configure(state="normal")
@@ -535,8 +538,9 @@ def main():
         status.see("end")
         status.configure(state="disabled")
 
-    # buttons
-    brow = tk.Frame(frame, bg=BG); brow.pack(fill="x")
+    # buttons: pinned to the bottom and packed before the status box, so
+    # they are always visible and clickable no matter the font or size
+    brow = tk.Frame(frame, bg=BG); brow.pack(side="bottom", fill="x", pady=(8, 0))
     go_btn = tk.Button(brow, text="Convert", bg=PANEL, fg=GOLD,
                        activebackground=PANEL, activeforeground=GOLD,
                        relief="flat", padx=20, pady=8, font=bold_font)
@@ -569,7 +573,7 @@ def main():
             root.after(0, log, "Everything installed. Press Convert again." if ok
                        else "Install failed. Open a terminal here and run: python -m pip install -r requirements.txt")
             root.after(0, lambda: (go_btn.configure(state="normal"),
-                                   install_btn.configure(state="normal", text="Install/update requirements")))
+                                   install_btn.configure(state="normal", text="Install requirements")))
         threading.Thread(target=task, daemon=True).start()
 
     def open_output():
@@ -581,13 +585,14 @@ def main():
             subprocess.Popen(["open", str(out)])
         else:
             subprocess.Popen(["xdg-open", str(out)])
-    tk.Button(brow, text="Open output folder", command=open_output,
+    tk.Button(brow, text="Open output", command=open_output,
               bg=PANEL, fg=MUTED, activebackground=PANEL, activeforeground=INK,
-              relief="flat", padx=12, pady=8).pack(side="left", padx=8)
-    install_btn = tk.Button(brow, text="Install/update requirements", command=lambda: install_deps(),
+              relief="flat", padx=10, pady=8).pack(side="left", padx=6)
+    install_btn = tk.Button(brow, text="Install requirements", command=lambda: install_deps(),
               bg=PANEL, fg=MUTED, activebackground=PANEL, activeforeground=INK,
-              relief="flat", padx=12, pady=8)
+              relief="flat", padx=10, pady=8)
     install_btn.pack(side="left")
+    status.pack(fill="both", expand=True, pady=(12, 0))
 
     def run():
         if not state["file"]:
@@ -610,7 +615,7 @@ def main():
                         book_voices=bv)
                 root.after(0, open_output)
             except ModuleNotFoundError as e:
-                root.after(0, log, f"Missing piece: {e.name}. Press the Install/update requirements button, then Convert again.")
+                root.after(0, log, f"Missing piece: {e.name}. Press the Install requirements button, then Convert again.")
             except Exception as e:
                 root.after(0, log, f"Failed: {e}")
                 traceback.print_exc()
