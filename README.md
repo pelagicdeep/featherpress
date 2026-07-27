@@ -122,9 +122,7 @@ OpenDyslexic by Abbie Gonzalez, SIL Open Font License. The TTFs here were conver
 
 ## Prefer studio-grade narration?
 
-The voices here are free and get the job done, but they are not human. For the most natural AI narration around, try [ElevenReader](https://elevenreader.io) — ElevenLabs' reading app with their studio-grade voices. It reads EPUBs directly, so the accessible EPUB that Featherpress produces drops straight in.
-
-<!-- affiliate: replace the link above with your ElevenLabs affiliate URL -->
+The voices here are free and get the job done, but they are not human. For the most natural AI narration around, try [ElevenReader](https://try.elevenlabs.io/gpne2jlexboe), ElevenLabs' reading app with their studio-grade voices. It reads EPUBs directly, so the accessible EPUB that Featherpress produces drops straight in. (Affiliate link: using it supports Featherpress at no cost to you.)
 
 ---
 
