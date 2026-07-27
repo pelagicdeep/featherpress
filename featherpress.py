@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.11.0"
+__version__ = "1.12.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -707,6 +707,67 @@ def load_manuscript(path: Path, keep_front_matter: bool = False) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Font resolution: 'dyslexic', 'standard', or the user's own font files
+# ---------------------------------------------------------------------------
+
+_VARIANT_WORDS = ("bolditalic", "boldoblique", "bold", "italic", "oblique",
+                  "regular", "book", "roman")
+
+
+def _font_base(stem: str) -> str:
+    n = re.sub(r"[^a-z0-9]", "", stem.lower())
+    for w in _VARIANT_WORDS:
+        n = n.replace(w, "")
+    return n
+
+
+def _font_variant(stem: str) -> str:
+    n = re.sub(r"[^a-z0-9]", "", stem.lower())
+    has_b = "bold" in n
+    has_i = "italic" in n or "oblique" in n
+    if has_b and has_i:
+        return "bolditalic"
+    if has_b:
+        return "bold"
+    if has_i:
+        return "italic"
+    return "regular"
+
+
+def resolve_font(font: str):
+    """Normalize a font choice. Returns (kind, variants):
+    ('dyslexic', None), ('standard', None), or ('custom', dict) where the
+    dict maps regular/bold/italic/bolditalic to Paths. A single file finds
+    its family siblings in the same folder by name; a folder takes every
+    .ttf/.otf inside."""
+    if font in ("dyslexic", "standard"):
+        return font, None
+    p = Path(font)
+    if p.is_dir():
+        files = sorted(list(p.glob("*.ttf")) + list(p.glob("*.otf")))
+        if not files:
+            raise ValueError(f"No .ttf or .otf font files found in {p}")
+    elif p.is_file():
+        if p.suffix.lower() not in (".ttf", ".otf"):
+            raise ValueError(f"Custom fonts must be .ttf or .otf files, got: {p.name}")
+        base = _font_base(p.stem)
+        files = [f for f in sorted(p.parent.iterdir())
+                 if f.suffix.lower() in (".ttf", ".otf") and _font_base(f.stem) == base]
+        if p not in files:
+            files.append(p)
+    else:
+        raise ValueError(
+            "Font must be 'dyslexic', 'standard', or a path to a .ttf/.otf "
+            f"file or a folder of them; got: {font}")
+    variants = {}
+    for f in files:
+        variants.setdefault(_font_variant(f.stem), f)
+    if "regular" not in variants:
+        variants["regular"] = files[0]
+    return "custom", variants
+
+
+# ---------------------------------------------------------------------------
 # Output 1: OpenDyslexic PDF
 # ---------------------------------------------------------------------------
 
@@ -726,9 +787,27 @@ def build_pdf(blocks, out_path: Path, title: str, author: str, theme_name: str,
 
     blocks = _books_as_h1(blocks)
     t = THEMES[theme_name]
-    if font == "standard":
+    kind, custom = resolve_font(font)
+    if kind == "standard":
         # built-in Helvetica family: no embedding, familiar to non-dyslexic readers
         f_reg, f_bold, f_italic = "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+    elif kind == "custom":
+        def reg(name, path):
+            try:
+                pdfmetrics.registerFont(TTFont(name, str(path)))
+            except Exception as e:
+                raise ValueError(
+                    f"Could not load {path.name} for the PDF ({e}). ReportLab "
+                    "needs TrueType outlines; convert CFF .otf fonts to .ttf.")
+        reg("Custom", custom["regular"])
+        reg("Custom-Bold", custom.get("bold") or custom["regular"])
+        reg("Custom-Italic", custom.get("italic") or custom["regular"])
+        reg("Custom-BoldItalic", custom.get("bolditalic") or custom.get("bold")
+            or custom.get("italic") or custom["regular"])
+        pdfmetrics.registerFontFamily(
+            "Custom", normal="Custom", bold="Custom-Bold",
+            italic="Custom-Italic", boldItalic="Custom-BoldItalic")
+        f_reg, f_bold, f_italic = "Custom", "Custom-Bold", "Custom-Italic"
     else:
         pdfmetrics.registerFont(TTFont("OD", str(FONT_DIR / FONTS["regular"])))
         pdfmetrics.registerFont(TTFont("OD-Bold", str(FONT_DIR / FONTS["bold"])))
@@ -907,10 +986,31 @@ def build_epub(blocks, out_path: Path, title: str, author: str, theme_name: str,
     if author:
         book.add_author(author)
 
-    if font == "standard":
+    kind, custom = resolve_font(font)
+    if kind == "standard":
         # no embedded fonts: the reading system's own font (and the reader's
         # override) rules, which is what non-dyslexic readers expect
         css_text = EPUB_CSS.format(**t, font_family="serif")
+    elif kind == "custom":
+        faces, added = [], set()
+        for key, (weight, style) in (("regular", ("normal", "normal")),
+                                     ("bold", ("bold", "normal")),
+                                     ("italic", ("normal", "italic")),
+                                     ("bolditalic", ("bold", "italic"))):
+            f = custom.get(key)
+            if f is None:
+                continue
+            if f.name not in added:
+                mtype = "font/otf" if f.suffix.lower() == ".otf" else "font/ttf"
+                book.add_item(epub.EpubItem(
+                    uid=f"font-{key}", file_name=f"fonts/{f.name}",
+                    media_type=mtype, content=f.read_bytes()))
+                added.add(f.name)
+            faces.append('@font-face { font-family: "BookFont"; '
+                         f'src: url(fonts/{f.name}); '
+                         f'font-weight: {weight}; font-style: {style}; }}')
+        css_text = "\n".join(faces) + EPUB_CSS.format(
+            **t, font_family='"BookFont", sans-serif')
     else:
         for key in ("regular", "bold", "italic"):
             fname = FONTS[key]
@@ -1540,8 +1640,15 @@ __CONTENT__
 def build_html(blocks, out_path: Path, title: str, author: str,
                font: str = "dyslexic"):
     blocks = _books_as_h1(blocks)
-    font_reg = base64.b64encode((FONT_DIR / FONTS["regular"]).read_bytes()).decode()
-    font_bold = base64.b64encode((FONT_DIR / FONTS["bold"]).read_bytes()).decode()
+    kind, custom = resolve_font(font)
+    if kind == "custom":
+        reg_file = custom["regular"]
+        bold_file = custom.get("bold") or reg_file
+    else:
+        reg_file = FONT_DIR / FONTS["regular"]
+        bold_file = FONT_DIR / FONTS["bold"]
+    font_reg = base64.b64encode(reg_file.read_bytes()).decode()
+    font_bold = base64.b64encode(bold_file.read_bytes()).decode()
     content = [f"<h1>{html_mod.escape(title, quote=False)}</h1>"]
     if author:
         content.append(f'<p style="color:var(--muted)">{html_mod.escape(author, quote=False)}</p>')
@@ -1551,12 +1658,21 @@ def build_html(blocks, out_path: Path, title: str, author: str,
             .replace("__FONT_REG__", font_reg)
             .replace("__FONT_BOLD__", font_bold)
             .replace("__CONTENT__", "\n".join(content)))
-    if font == "standard":
+    if kind == "standard":
         # same live toggle, just starting on the standard side
         page = (page
                 .replace("<body>", '<body class="stdfont">')
                 .replace('id="fontBtn" aria-pressed="false">Font: Dyslexic',
                          'id="fontBtn" aria-pressed="true">Font: Standard'))
+    elif kind == "custom":
+        # the embedded family is the user's font; label the toggle honestly
+        page = (page
+                .replace(">Font: Dyslexic<", ">Font: Custom<")
+                .replace("'Dyslexic'", "'Custom'"))
+        if reg_file.suffix.lower() == ".otf":
+            page = (page
+                    .replace("data:font/ttf", "data:font/otf")
+                    .replace("format('truetype')", "format('opentype')"))
     out_path.write_text(page, encoding="utf-8")
 
 
@@ -1575,9 +1691,11 @@ def main():
     ap.add_argument("--author", default="", help="Author name")
     ap.add_argument("--theme", choices=list(THEMES), default="cream",
                     help="PDF and EPUB color theme (default: cream)")
-    ap.add_argument("--font", choices=["dyslexic", "standard"], default="dyslexic",
-                    help="Output font for PDF/EPUB/HTML: OpenDyslexic (default) "
-                         "or the standard reading font")
+    ap.add_argument("--font", default="dyslexic", metavar="CHOICE",
+                    help="Output font for PDF/EPUB/HTML: 'dyslexic' "
+                         "(OpenDyslexic, default), 'standard', or a path to "
+                         "your own .ttf/.otf file or a folder of them "
+                         "(Bold/Italic siblings are found by name)")
     ap.add_argument("--formats", default="pdf,epub,tts,html",
                     help="Comma list of outputs: pdf,epub,tts,html,audio "
                          "(audio is opt-in; voicing a whole book takes a while)")
@@ -1602,6 +1720,10 @@ def main():
     missing = [s for s in srcs if not s.exists()]
     if missing:
         sys.exit("Input not found: " + ", ".join(str(m) for m in missing))
+    try:
+        font_kind, font_custom = resolve_font(args.font)
+    except ValueError as e:
+        sys.exit(str(e))
 
     title = args.title or srcs[0].stem.replace("-", " ").replace("_", " ").title()
     outdir = Path(args.outdir)
@@ -1633,7 +1755,10 @@ def main():
 
     wanted = {f.strip() for f in args.formats.lower().split(",")}
     if "pdf" in wanted:
-        fontpart = "opendyslexic" if args.font == "dyslexic" else "standard"
+        if font_kind == "custom":
+            fontpart = _font_base(font_custom["regular"].stem) or "customfont"
+        else:
+            fontpart = "opendyslexic" if font_kind == "dyslexic" else "standard"
         p = outdir / f"{stem}_{fontpart}_{args.theme}.pdf"
         build_pdf(blocks, p, title, args.author, args.theme, args.font)
         print(f"  PDF   -> {p}")

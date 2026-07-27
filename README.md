@@ -10,7 +10,7 @@ Drop in a `.md`, `.txt`, `.docx`, `.pdf`, or `.epub` file and get:
 4. **Voiced audiobook**: the narration text read aloud and stitched into an `.m4b` with chapter markers, title, and author metadata. Voices come from Microsoft's Edge neural catalog by default (natural-sounding, 300+ voices across dozens of languages, needs internet) with Piper as the fully offline fallback. Speech speed is adjustable. Opt-in (`--formats audio` or the AUDIO checkbox) because voicing a whole book takes a while.
 5. **Standalone HTML reader**: a single self-contained file with fonts embedded, live dark/cream theme toggle, a Dyslexic/Standard font toggle, font size and line spacing controls, keyboard accessible, reduced-motion aware.
 
-OpenDyslexic is the default typeface everywhere, but every visual output can be produced in a standard reading font instead (`--font standard`, or the "Book font" choice in the GUI): the PDF switches to Helvetica, the EPUB embeds no fonts so the e-reader's own font rules, and the HTML reader starts on the Standard side of its toggle. Accessible by default, welcoming to everyone.
+OpenDyslexic is the default typeface everywhere, but every visual output can be produced in a standard reading font instead (`--font standard`, or the "Book font" choice in the GUI): the PDF switches to Helvetica, the EPUB embeds no fonts so the e-reader's own font rules, and the HTML reader starts on the Standard side of its toggle. You can also bring your own font, such as Lexend or Atkinson Hyperlegible: pass `--font path\to\YourFont-Regular.ttf` (Bold and Italic siblings in the same folder are picked up automatically, or point at the folder itself), or use "Custom..." in the GUI. Accessible by default, welcoming to everyone.
 
 ## Setup
 
@@ -41,7 +41,7 @@ python featherpress.py notes.txt --formats pdf,tts
 | `--title` | Book title | Derived from filename |
 | `--author` | Author name | none |
 | `--theme` | `cream` or `dark` (PDF and EPUB) | `cream` |
-| `--font` | `dyslexic` (OpenDyslexic) or `standard` for PDF/EPUB/HTML | `dyslexic` |
+| `--font` | `dyslexic` (OpenDyslexic), `standard`, or a path to your own .ttf/.otf file or folder | `dyslexic` |
 | `--formats` | Any of `pdf,epub,tts,html,audio` | `pdf,epub,tts,html` |
 | `--voice` | Audiobook voice, Edge or Piper (see below) | `en-US-AndrewMultilingualNeural` |
 | `--rate` | Speech speed in percent, negative = slower | `0` |
@@ -111,7 +111,7 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 
 ## Version history
 
-Current version: **1.10.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
+Current version: **1.12.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
 and is browsable in-app via the GUI's "Version history" button.
 `python featherpress.py --version` prints the version on the command line.
 The working plan (done, decided, next, gaps) lives in [PLAN.md](PLAN.md).

@@ -109,7 +109,11 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb,
     status_cb(f"Parsed {len(blocks)} blocks.")
 
     if "pdf" in formats:
-        fontpart = "opendyslexic" if book_font == "dyslexic" else "standard"
+        kind, custom = fp.resolve_font(book_font)
+        if kind == "custom":
+            fontpart = fp._font_base(custom["regular"].stem) or "customfont"
+        else:
+            fontpart = "opendyslexic" if kind == "dyslexic" else "standard"
         p = outdir / f"{stem}_{fontpart}_{theme}.pdf"
         fp.build_pdf(blocks, p, title, author, theme, book_font)
         status_cb(f"PDF written: {p.name}")
@@ -303,12 +307,31 @@ def main():
 
     # book font: what the PDF/EPUB/HTML outputs use (dyslexic-first default)
     book_font_var = tk.StringVar(value="dyslexic")
+    custom_font = {"path": None}
     bfrow = tk.Frame(frame, bg=BG); bfrow.pack(fill="x", pady=(6, 0))
     styled_label(bfrow, "Book font:").pack(side="left")
     for val, lab in (("dyslexic", "OpenDyslexic"), ("standard", "Standard")):
         tk.Radiobutton(bfrow, text=lab, value=val, variable=book_font_var,
                        bg=BG, fg=INK, selectcolor=PANEL,
                        activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
+
+    def pick_custom_font():
+        p = filedialog.askopenfilename(
+            title="Choose your font (Bold/Italic siblings are found by name)",
+            filetypes=[("Fonts", "*.ttf *.otf"), ("All files", "*.*")])
+        if p:
+            custom_font["path"] = p
+            custom_lbl.configure(text=Path(p).name)
+            book_font_var.set("custom")
+            log(f"Book font: {Path(p).name} (own font for PDF/EPUB/HTML)")
+        elif custom_font["path"] is None:
+            book_font_var.set("dyslexic")
+
+    tk.Radiobutton(bfrow, text="Custom...", value="custom", variable=book_font_var,
+                   command=pick_custom_font, bg=BG, fg=INK, selectcolor=PANEL,
+                   activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
+    custom_lbl = tk.Label(bfrow, text="", bg=BG, fg=MUTED)
+    custom_lbl.pack(side="left", padx=(2, 0))
 
     # voice + speed (for the audiobook format)
     voice_state = {"name": DEFAULT_VOICE}
@@ -619,10 +642,16 @@ def main():
                 bv = None
                 if isinstance(files, list) and len(files) > 1 and state["book_voices"]:
                     bv = [state["book_voices"].get(p) for p in files]
+                book_font = book_font_var.get()
+                if book_font == "custom":
+                    if not custom_font["path"]:
+                        root.after(0, log, "Pick a font file first (Custom...).")
+                        return
+                    book_font = custom_font["path"]
                 convert(files, state["outdir"], title_e.get(), author_e.get(),
                         theme_var.get(), formats, lambda m: root.after(0, log, m),
                         voice=voice_state["name"], rate=rate_var.get(),
-                        book_voices=bv, book_font=book_font_var.get())
+                        book_voices=bv, book_font=book_font)
                 root.after(0, open_output)
             except ModuleNotFoundError as e:
                 root.after(0, log, f"Missing piece: {e.name}. Press the Install requirements button, then Convert again.")

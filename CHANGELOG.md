@@ -4,6 +4,18 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.12.0] - 2026-07-27
+
+### Added
+- Bring your own font: `--font` now also accepts a path to a .ttf/.otf
+  file or a folder of them, and the GUI's Book font row gains a
+  "Custom..." picker. Give it one file and the Bold/Italic/BoldItalic
+  siblings are found by name; missing variants fall back to regular.
+  The PDF embeds the family (and is named after it), the EPUB embeds
+  every variant with proper @font-face weights and styles, and the HTML
+  reader embeds it with its toggle honestly labeled "Font: Custom".
+  Clear errors for missing files and CFF-flavored .otf in the PDF path.
+
 ## [1.11.0] - 2026-07-26
 
 ### Added
