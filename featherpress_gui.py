@@ -305,15 +305,18 @@ def main():
                        bg=BG, fg=INK, selectcolor=PANEL,
                        activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
 
-    # book font: what the PDF/EPUB/HTML outputs use (dyslexic-first default)
+    # book font: what the PDF/EPUB/HTML outputs use (dyslexic-first default);
+    # two rows so wide interface fonts never push choices off the window
     book_font_var = tk.StringVar(value="dyslexic")
     custom_font = {"path": None}
     bfrow = tk.Frame(frame, bg=BG); bfrow.pack(fill="x", pady=(6, 0))
     styled_label(bfrow, "Book font:").pack(side="left")
-    for val, lab in (("dyslexic", "OpenDyslexic"), ("standard", "Standard")):
+    for val, lab in (("dyslexic", "OpenDyslexic"), ("atkinson", "Atkinson"),
+                     ("lexend", "Lexend")):
         tk.Radiobutton(bfrow, text=lab, value=val, variable=book_font_var,
                        bg=BG, fg=INK, selectcolor=PANEL,
                        activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
+    bfrow2 = tk.Frame(frame, bg=BG); bfrow2.pack(fill="x")
 
     def pick_custom_font():
         p = filedialog.askopenfilename(
@@ -327,10 +330,15 @@ def main():
         elif custom_font["path"] is None:
             book_font_var.set("dyslexic")
 
-    tk.Radiobutton(bfrow, text="Custom...", value="custom", variable=book_font_var,
+    # invisible twin of the row label keeps the second row aligned at any font size
+    tk.Label(bfrow2, text="Book font:", bg=BG, fg=BG, anchor="w").pack(side="left")
+    tk.Radiobutton(bfrow2, text="Standard", value="standard", variable=book_font_var,
+                   bg=BG, fg=INK, selectcolor=PANEL,
+                   activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
+    tk.Radiobutton(bfrow2, text="Custom...", value="custom", variable=book_font_var,
                    command=pick_custom_font, bg=BG, fg=INK, selectcolor=PANEL,
                    activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
-    custom_lbl = tk.Label(bfrow, text="", bg=BG, fg=MUTED)
+    custom_lbl = tk.Label(bfrow2, text="", bg=BG, fg=MUTED)
     custom_lbl.pack(side="left", padx=(2, 0))
 
     # voice + speed (for the audiobook format)

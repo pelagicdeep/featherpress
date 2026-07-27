@@ -41,7 +41,7 @@ python featherpress.py notes.txt --formats pdf,tts
 | `--title` | Book title | Derived from filename |
 | `--author` | Author name | none |
 | `--theme` | `cream` or `dark` (PDF and EPUB) | `cream` |
-| `--font` | `dyslexic` (OpenDyslexic), `standard`, or a path to your own .ttf/.otf file or folder | `dyslexic` |
+| `--font` | `dyslexic`, `atkinson`, `lexend`, `standard`, or a path to your own .ttf/.otf file or folder | `dyslexic` |
 | `--formats` | Any of `pdf,epub,tts,html,audio` | `pdf,epub,tts,html` |
 | `--voice` | Audiobook voice, Edge or Piper (see below) | `en-US-AndrewMultilingualNeural` |
 | `--rate` | Speech speed in percent, negative = slower | `0` |
@@ -111,7 +111,7 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 
 ## Version history
 
-Current version: **1.12.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
+Current version: **1.13.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
 and is browsable in-app via the GUI's "Version history" button.
 `python featherpress.py --version` prints the version on the command line.
 The working plan (done, decided, next, gaps) lives in [PLAN.md](PLAN.md).
@@ -120,12 +120,12 @@ The working plan (done, decided, next, gaps) lives in [PLAN.md](PLAN.md).
 
 OpenDyslexic by Abbie Gonzalez, SIL Open Font License. The TTFs here were converted from the official OTF releases (CFF to TrueType) so ReportLab can embed them.
 
-Other accessible typefaces drop straight in through `--font` (or "Custom..." in the GUI), and both of these are free and excellent:
+Two more accessible typefaces ship bundled (both SIL Open Font License; license texts in `fonts/`) and are one flag away:
 
-- [Atkinson Hyperlegible](https://www.brailleinstitute.org/freefont/) by the Braille Institute: designed for low vision, with exaggerated letterform distinctions so similar characters are hard to confuse. Also on [Google Fonts](https://fonts.google.com/specimen/Atkinson+Hyperlegible).
-- [Lexend](https://www.lexend.com/) by Bonnie Shaver-Troup and Thomas Jockin: designed to reduce visual stress and improve reading proficiency, with several width grades to try. Also on [Google Fonts](https://fonts.google.com/specimen/Lexend).
+- [Atkinson Hyperlegible](https://www.brailleinstitute.org/freefont/) by the Braille Institute (`--font atkinson`): designed for low vision, with exaggerated letterform distinctions so similar characters are hard to confuse.
+- [Lexend](https://www.lexend.com/) by Bonnie Shaver-Troup and Thomas Jockin (`--font lexend`): designed to reduce visual stress and improve reading proficiency. Upstream has no italic faces, so italics render in regular.
 
-Download the TTFs, point Featherpress at one, and the whole family comes along. OpenDyslexic works great for some dyslexic readers and not others; having three good options beats arguing about which one is right.
+Anything else drops in through `--font path\to\font.ttf` or "Custom..." in the GUI. OpenDyslexic works great for some dyslexic readers and not others; having several good options beats arguing about which one is right.
 
 ## Prefer studio-grade narration?
 

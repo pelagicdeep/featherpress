@@ -4,6 +4,16 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.13.0] - 2026-07-27
+
+### Added
+- Atkinson Hyperlegible and Lexend ship bundled (SIL OFL, license texts
+  in fonts/) and become named choices: `--font atkinson` / `--font
+  lexend` on the CLI, radio options in the GUI's Book font rows. The
+  PDF, EPUB, and HTML reader embed them like any custom family, and the
+  reader's toggle is labeled with the actual font name. Lexend has no
+  italic faces upstream, so italics render in regular there.
+
 ## [1.12.0] - 2026-07-27
 
 ### Added

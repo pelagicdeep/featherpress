@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -734,14 +734,33 @@ def _font_variant(stem: str) -> str:
     return "regular"
 
 
+# bundled accessible families beyond OpenDyslexic (SIL OFL, license texts
+# ship in fonts/); Lexend has no italic faces, so italics fall back
+BUILTIN_FAMILIES = {
+    "atkinson": {
+        "regular": "AtkinsonHyperlegible-Regular.ttf",
+        "bold": "AtkinsonHyperlegible-Bold.ttf",
+        "italic": "AtkinsonHyperlegible-Italic.ttf",
+        "bolditalic": "AtkinsonHyperlegible-BoldItalic.ttf",
+    },
+    "lexend": {
+        "regular": "Lexend-Regular.ttf",
+        "bold": "Lexend-Bold.ttf",
+    },
+}
+
+
 def resolve_font(font: str):
     """Normalize a font choice. Returns (kind, variants):
     ('dyslexic', None), ('standard', None), or ('custom', dict) where the
-    dict maps regular/bold/italic/bolditalic to Paths. A single file finds
-    its family siblings in the same folder by name; a folder takes every
-    .ttf/.otf inside."""
+    dict maps regular/bold/italic/bolditalic to Paths. Named bundled
+    families ('atkinson', 'lexend') resolve from fonts/. A single file
+    finds its family siblings in the same folder by name; a folder takes
+    every .ttf/.otf inside."""
     if font in ("dyslexic", "standard"):
         return font, None
+    if font in BUILTIN_FAMILIES:
+        return "custom", {k: FONT_DIR / v for k, v in BUILTIN_FAMILIES[font].items()}
     p = Path(font)
     if p.is_dir():
         files = sorted(list(p.glob("*.ttf")) + list(p.glob("*.otf")))
@@ -1665,10 +1684,11 @@ def build_html(blocks, out_path: Path, title: str, author: str,
                 .replace('id="fontBtn" aria-pressed="false">Font: Dyslexic',
                          'id="fontBtn" aria-pressed="true">Font: Standard'))
     elif kind == "custom":
-        # the embedded family is the user's font; label the toggle honestly
+        # the embedded family is the chosen font; label the toggle honestly
+        label = {"atkinson": "Atkinson", "lexend": "Lexend"}.get(font, "Custom")
         page = (page
-                .replace(">Font: Dyslexic<", ">Font: Custom<")
-                .replace("'Dyslexic'", "'Custom'"))
+                .replace(">Font: Dyslexic<", f">Font: {label}<")
+                .replace("'Dyslexic'", f"'{label}'"))
         if reg_file.suffix.lower() == ".otf":
             page = (page
                     .replace("data:font/ttf", "data:font/otf")
@@ -1693,7 +1713,8 @@ def main():
                     help="PDF and EPUB color theme (default: cream)")
     ap.add_argument("--font", default="dyslexic", metavar="CHOICE",
                     help="Output font for PDF/EPUB/HTML: 'dyslexic' "
-                         "(OpenDyslexic, default), 'standard', or a path to "
+                         "(OpenDyslexic, default), 'atkinson' (Atkinson "
+                         "Hyperlegible), 'lexend', 'standard', or a path to "
                          "your own .ttf/.otf file or a folder of them "
                          "(Bold/Italic siblings are found by name)")
     ap.add_argument("--formats", default="pdf,epub,tts,html",
