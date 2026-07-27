@@ -120,6 +120,13 @@ The working plan (done, decided, next, gaps) lives in [PLAN.md](PLAN.md).
 
 OpenDyslexic by Abbie Gonzalez, SIL Open Font License. The TTFs here were converted from the official OTF releases (CFF to TrueType) so ReportLab can embed them.
 
+Other accessible typefaces drop straight in through `--font` (or "Custom..." in the GUI), and both of these are free and excellent:
+
+- [Atkinson Hyperlegible](https://www.brailleinstitute.org/freefont/) by the Braille Institute: designed for low vision, with exaggerated letterform distinctions so similar characters are hard to confuse. Also on [Google Fonts](https://fonts.google.com/specimen/Atkinson+Hyperlegible).
+- [Lexend](https://www.lexend.com/) by Bonnie Shaver-Troup and Thomas Jockin: designed to reduce visual stress and improve reading proficiency, with several width grades to try. Also on [Google Fonts](https://fonts.google.com/specimen/Lexend).
+
+Download the TTFs, point Featherpress at one, and the whole family comes along. OpenDyslexic works great for some dyslexic readers and not others; having three good options beats arguing about which one is right.
+
 ## Prefer studio-grade narration?
 
 The voices here are free and get the job done, but they are not human. For the most natural AI narration around, try [ElevenReader](https://try.elevenlabs.io/gpne2jlexboe), ElevenLabs' reading app with their studio-grade voices. It reads EPUBs directly, so the accessible EPUB that Featherpress produces drops straight in. (Affiliate link: using it supports Featherpress at no cost to you.)
