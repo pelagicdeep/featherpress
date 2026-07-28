@@ -117,7 +117,7 @@ and is browsable in-app via the GUI's "Version history" button.
 
 ## Fonts
 
-OpenDyslexic by Abbie Gonzalez, SIL Open Font License. The TTFs here were converted from the official OTF releases (CFF to TrueType) so ReportLab can embed them.
+OpenDyslexic by Abbie Gonzalez, SIL Open Font License. The TTFs here were converted from the official OTF releases (CFF to TrueType outlines, design untouched) purely so ReportLab can embed them in the PDF; the OFL declares "OpenDyslexic" a Reserved Font Name, so author permission for keeping the name on these format-converted files has been requested. Details, copyright notices, and full license texts for every bundled family live in [`fonts/FONT-NOTICES.md`](fonts/FONT-NOTICES.md).
 
 Two more accessible typefaces ship bundled (both SIL Open Font License; license texts in `fonts/`) and are one flag away:
 
