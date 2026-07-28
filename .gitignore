@@ -14,3 +14,6 @@ logs/
 
 # local interface preferences
 gui_settings.json
+
+# the working plan stays local (may reference unreleased work)
+PLAN.md

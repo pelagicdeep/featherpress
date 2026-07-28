@@ -108,9 +108,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
   the docx fixture exercising all three.
 
 ### Fixed
-- The stale Featherpress copy under `an older local copy` (which
-  had none of the audio features) now forwards its launchers to this repo,
-  so old shortcuts open the current version.
+- A stale local copy of Featherpress (which had none of the audio
+  features) now forwards its launchers to this repo, so old shortcuts
+  open the current version.
 
 ## [1.5.0] - 2026-07-21
 

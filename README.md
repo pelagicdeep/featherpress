@@ -114,7 +114,6 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 Current version: **1.13.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
 and is browsable in-app via the GUI's "Version history" button.
 `python featherpress.py --version` prints the version on the command line.
-The working plan (done, decided, next, gaps) lives in [PLAN.md](PLAN.md).
 
 ## Fonts
 
