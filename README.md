@@ -130,6 +130,10 @@ Anything else drops in through `--font path\to\font.ttf` or "Custom..." in the G
 
 The voices here are free and get the job done, but they are not human. For the most natural AI narration around, try [ElevenReader](https://try.elevenlabs.io/gpne2jlexboe), ElevenLabs' reading app with their studio-grade voices. It reads EPUBs directly, so the accessible EPUB that Featherpress produces drops straight in. (Affiliate link: using it supports Featherpress at no cost to you.)
 
+## License
+
+[GPL-3.0-or-later](LICENSE). Featherpress is free software: use it, share it, sell services around it, improve it, and keep those improvements open for the readers it serves. Releases up to v1.13.0 were MIT licensed and those tags keep that license; from here on it is GPL. Note for redistributors bundling dependencies: the EPUB and TTS engines (EbookLib, piper-tts, edge-tts) are AGPL/GPL licensed themselves, so a bundled distribution must honor those terms regardless. The bundled fonts are licensed separately under the SIL Open Font License (see `fonts/`).
+
 ---
 
 By PelagicDeep. Claude was the feather.

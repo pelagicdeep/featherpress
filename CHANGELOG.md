@@ -4,6 +4,16 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.13.1] - 2026-07-28
+
+### Changed
+- License: MIT to GPL-3.0-or-later. Featherpress's core engines
+  (EbookLib, piper-tts, edge-tts) are AGPL/GPL already, so the combined
+  work was effectively copyleft; the project license now says so
+  honestly, and improvements to this accessibility tool stay open for
+  the readers it serves. Releases up to v1.13.0 remain MIT. Fonts stay
+  under their own SIL Open Font License.
+
 ## [1.13.0] - 2026-07-27
 
 ### Added

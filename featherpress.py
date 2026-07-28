@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# Featherpress. Copyright (C) 2026 PelagicDeep
+# SPDX-License-Identifier: GPL-3.0-or-later
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation, either version 3 of the License, or (at your
+# option) any later version. It comes with ABSOLUTELY NO WARRANTY.
+# See the LICENSE file for details.
 """
 Featherpress: a dyslexic-first publishing pipeline.
 
@@ -25,7 +32,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.13.0"
+__version__ = "1.13.1"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"

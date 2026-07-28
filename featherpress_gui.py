@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Featherpress. Copyright (C) 2026 PelagicDeep
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Free software under the GNU GPL v3 or later; no warranty. See LICENSE.
 """
 Featherpress GUI: the exhausted-evening interface.
 Double-click featherpress_gui.bat (Windows) or run: python featherpress_gui.py
