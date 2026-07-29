@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 
-__version__ = "1.13.1"
+__version__ = "1.14.0"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 FONT_DIR = SCRIPT_DIR / "fonts"
@@ -536,6 +536,106 @@ def parse_epub(path: Path, keep_front_matter: bool = False) -> list:
     return blocks
 
 
+def _line_text_from_chars(chars) -> str:
+    """Rebuild a line's text from character positions, inserting a space
+    wherever the gap between glyphs exceeds a fraction of the character
+    width. Recovers word boundaries in PDFs (many academic journals) whose
+    text layer encodes spacing as position rather than space characters."""
+    if not chars:
+        return ""
+    widths = sorted(c["x1"] - c["x0"] for c in chars if c["x1"] > c["x0"])
+    med = widths[len(widths) // 2] if widths else 4.0
+    thresh = max(1.0, 0.3 * med)
+    out = [chars[0]["text"]]
+    for prev, c in zip(chars, chars[1:]):
+        if c["x0"] - prev["x1"] > thresh and not c["text"].isspace() \
+                and not out[-1].isspace():
+            out.append(" ")
+        out.append(c["text"])
+    return "".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Reference/academic simplification: citations out, acronyms expanded
+# ---------------------------------------------------------------------------
+
+# a bracketed numeric citation: [12], [1,2,5], [17,18,22-28], [1 to 6]
+_CITE_NUM_RE = re.compile(r"\s*\[\s*\d+(?:\s*(?:[,;]|to|[–—-])\s*\d+)*\s*\]")
+# a parenthetical author-year citation: (Smith et al., 2019), (Lee and Ng, 2020)
+_CITE_YEAR_RE = re.compile(r"\s*\((?:[^()]*?\b(?:19|20)\d{2}[a-z]?)\)")
+# journal furniture lines to drop wholesale
+_FURNITURE_RE = re.compile(
+    r"(doi\.org|https?://|©|\blicensee\b|open access article|"
+    r"creativecommons|Publisher'?s Note|MDPI stays neutral|"
+    r"^\s*(Received|Accepted|Published|Citation|Correspondence|Academic Editor)\s*:|"
+    r"^\s*Agronomy\s+\d{4},)", re.I)
+_REFERENCES_HEAD_RE = re.compile(r"^(references|bibliography|works cited|literature cited)\W*$", re.I)
+
+
+def _learn_glossary(blocks) -> dict:
+    """Scan the document for 'phrase (ACR)' definitions and return the
+    acronym -> phrase map. The phrase is exactly the N words immediately
+    before the acronym whose initials spell it (N = acronym length, minus a
+    trailing plural s), so 'water holding capacity (WHC)' yields water
+    holding capacity, never the preceding verb. Ambiguous or non-matching
+    parentheticals are skipped, keeping the map trustworthy."""
+    acr_re = re.compile(r"\(([A-Z][A-Za-z0-9]{1,6})\)")
+    word_re = re.compile(r"[A-Za-z][\w'/-]*")
+    glossary = {}
+    for b in blocks:
+        text = strip_inline(b.text)
+        for m in acr_re.finditer(text):
+            acr = m.group(1)
+            core = acr.rstrip("s")
+            if len(core) < 2:
+                continue
+            words = word_re.findall(text[:m.start()])
+            if len(words) < len(core):
+                continue
+            cand = words[-len(core):]
+            if "".join(w[0] for w in cand).lower() == core.lower():
+                glossary.setdefault(acr, " ".join(cand))
+    return glossary
+
+
+def simplify_blocks(blocks: list) -> list:
+    """Make reference-heavy documents (academic papers, technical reports)
+    readable: strip inline citations, expand acronyms the document defines
+    itself, drop the reference list, and remove journal furniture. Learned
+    from the document, so nothing needs configuring."""
+    glossary = _learn_glossary(blocks)
+    # longest acronyms first so nested ones expand cleanly
+    acronyms = sorted(glossary, key=len, reverse=True)
+
+    def clean(text: str) -> str:
+        text = _CITE_NUM_RE.sub("", text)
+        text = _CITE_YEAR_RE.sub("", text)
+        for acr in acronyms:
+            phrase = glossary[acr]
+            # drop the "(ACR)" from its definition, then expand every use
+            text = re.sub(r"\s*\(" + re.escape(acr) + r"\)", "", text)
+            text = re.sub(r"\b" + re.escape(acr) + r"\b", phrase, text)
+        text = re.sub(r"\s+([,.;:)])", r"\1", text)   # tidy spacing left behind
+        text = re.sub(r"\(\s+", "(", text)
+        return re.sub(r"\s{2,}", " ", text).strip()
+
+    out = []
+    for b in blocks:
+        plain = strip_inline(b.text).strip()
+        if b.kind in ("h1", "h2", "h3") and _REFERENCES_HEAD_RE.match(plain):
+            break  # the reference list and everything after it goes
+        if b.kind == "p" and _FURNITURE_RE.search(plain):
+            continue
+        if b.kind in ("p", "quote", "h1", "h2", "h3"):
+            b = Block(b.kind, clean(b.text))
+            if not strip_inline(b.text).strip():
+                continue
+        elif b.kind in ("li-ul", "li-ol"):
+            b = Block(b.kind, items=[clean(i) for i in b.items])
+        out.append(b)
+    return out
+
+
 def parse_pdf(path: Path) -> list:
     """Extract a manuscript from a PDF with structure inference.
     Uses font sizes to rebuild headings; falls back to plain extraction."""
@@ -557,6 +657,11 @@ def parse_pdf(path: Path) -> list:
                 if not text:
                     continue
                 chars = tl.get("chars") or []
+                # recover spaces if this line's text layer jammed words together
+                if chars:
+                    rebuilt = re.sub(r"\s+", " ", _line_text_from_chars(chars)).strip()
+                    if rebuilt.count(" ") > text.count(" "):
+                        text = rebuilt
                 size = (sum(c.get("size", 10) for c in chars) / len(chars)) if chars else 10.0
                 lines.append({"text": text, "size": size, "top": tl["top"],
                               "bottom": tl["bottom"], "page": pno})
@@ -1739,6 +1844,11 @@ def main():
                     help="Speech speed adjustment in percent; negative is slower "
                          "(for example -15). Default: 0")
     ap.add_argument("--version", action="version", version=f"Featherpress {__version__}")
+    ap.add_argument("--simplify", action="store_true",
+                    help="Reading aid for reference-heavy documents (academic "
+                         "papers, reports): strip inline citations, expand "
+                         "acronyms the document defines, and drop the reference "
+                         "list and journal furniture")
     ap.add_argument("--keep-front-matter", action="store_true",
                     help="Keep EPUB front matter (cover, copyright, contents pages) "
                          "instead of starting at the story")
@@ -1780,6 +1890,11 @@ def main():
             print(f"  + {s.name}{narrator}")
     blocks = load_manuscripts(srcs, args.keep_front_matter, book_voices)
     print(f"  parsed {len(blocks)} blocks")
+    if args.simplify:
+        before = len(blocks)
+        blocks = simplify_blocks(blocks)
+        print(f"  simplified: citations stripped, acronyms expanded "
+              f"({before} -> {len(blocks)} blocks)")
 
     wanted = {f.strip() for f in args.formats.lower().split(",")}
     if "pdf" in wanted:

@@ -4,6 +4,23 @@ All notable changes to Featherpress are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/).
 
+## [1.14.0] - 2026-07-28
+
+### Added
+- Simplify mode (`--simplify`, or the "Simplify references" checkbox in the
+  GUI): a reading aid for reference-heavy documents like academic papers
+  and technical reports. Strips inline citations (`[12]`, `[1,2,5]`,
+  `[17-28]`, and author-year forms), expands acronyms the document defines
+  itself (learns "water holding capacity (WHC)" and expands every later
+  "WHC"), drops the reference list, and removes journal furniture (DOIs,
+  copyright and publisher notices, running headers).
+
+### Fixed
+- PDF word-spacing recovery: some PDFs (many academic journals) encode
+  spacing as glyph position rather than space characters, so extraction
+  jammed words together ("Improvingsoilwater"). Featherpress now rebuilds
+  word boundaries from character positions when a line comes out jammed.
+
 ## [1.13.1] - 2026-07-28
 
 ### Changed

@@ -86,7 +86,8 @@ def play_media(path):
 # ---------------------------------------------------------------------------
 
 def convert(input_path, outdir, title, author, theme, formats, status_cb,
-            voice=DEFAULT_VOICE, rate=0, book_voices=None, book_font="dyslexic"):
+            voice=DEFAULT_VOICE, rate=0, book_voices=None, book_font="dyslexic",
+            simplify=False):
     """Run the pipeline. status_cb(str) receives progress lines.
     Returns the output directory Path on success, raises on failure."""
     import featherpress as fp
@@ -110,6 +111,11 @@ def convert(input_path, outdir, title, author, theme, formats, status_cb,
             status_cb(f"  + {p.name}{narrator}")
     blocks = fp.load_manuscripts(paths, voices=book_voices)
     status_cb(f"Parsed {len(blocks)} blocks.")
+    if simplify:
+        before = len(blocks)
+        blocks = fp.simplify_blocks(blocks)
+        status_cb(f"Simplified for reading: citations stripped, acronyms "
+                  f"expanded ({before} -> {len(blocks)} blocks).")
 
     if "pdf" in formats:
         kind, custom = fp.resolve_font(book_font)
@@ -343,6 +349,13 @@ def main():
                    activebackground=BG, activeforeground=INK).pack(side="left", padx=6)
     custom_lbl = tk.Label(bfrow2, text="", bg=BG, fg=MUTED)
     custom_lbl.pack(side="left", padx=(2, 0))
+
+    # reading aid for reference-heavy documents (papers, reports)
+    simplify_var = tk.BooleanVar(value=False)
+    smrow = tk.Frame(frame, bg=BG); smrow.pack(fill="x", pady=(6, 0))
+    tk.Checkbutton(smrow, text="Simplify references (strip citations, expand acronyms)",
+                   variable=simplify_var, bg=BG, fg=INK, selectcolor=PANEL,
+                   activebackground=BG, activeforeground=INK).pack(side="left")
 
     # voice + speed (for the audiobook format)
     voice_state = {"name": DEFAULT_VOICE}
@@ -662,7 +675,8 @@ def main():
                 convert(files, state["outdir"], title_e.get(), author_e.get(),
                         theme_var.get(), formats, lambda m: root.after(0, log, m),
                         voice=voice_state["name"], rate=rate_var.get(),
-                        book_voices=bv, book_font=book_font)
+                        book_voices=bv, book_font=book_font,
+                        simplify=simplify_var.get())
                 root.after(0, open_output)
             except ModuleNotFoundError as e:
                 root.after(0, log, f"Missing piece: {e.name}. Press the Install requirements button, then Convert again.")

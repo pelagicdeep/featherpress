@@ -45,6 +45,7 @@ python featherpress.py notes.txt --formats pdf,tts
 | `--formats` | Any of `pdf,epub,tts,html,audio` | `pdf,epub,tts,html` |
 | `--voice` | Audiobook voice, Edge or Piper (see below) | `en-US-AndrewMultilingualNeural` |
 | `--rate` | Speech speed in percent, negative = slower | `0` |
+| `--simplify` | Strip citations, expand acronyms, drop references (papers/reports) | off |
 | `--keep-front-matter` | Keep EPUB cover/copyright/contents pages | skipped |
 
 ### The voiced audiobook
@@ -71,6 +72,16 @@ For playback, anything that understands audiobooks will show the chapter list an
 - **PDF**: text is extracted with structure inference. Font sizes rebuild the headings, the document's own line spacing is measured so paragraphs group correctly, hyphenation across line breaks is repaired, and repeated headers, footers, and bare page numbers are stripped. Honest limitations: bullets flatten into plain lines (their glyphs may appear as stray characters), bold and italic are lost, and scanned PDFs have no text layer at all, so the tool will tell you to OCR them first (ocrmypdf works well). PDF is the lossiest input; when you have the original .docx or .md, prefer it.
 
 Chapters are detected at h1 boundaries for the EPUB table of contents and the TTS chapter announcements.
+
+### Simplify mode (academic papers and reports)
+
+Reference-heavy documents are hard to read and worse to listen to. `--simplify` (or the "Simplify references" checkbox in the GUI) makes them flow:
+
+- **Inline citations removed**: `[12]`, `[1,2,5]`, `[17-28]`, and `(Smith et al., 2019)` all disappear, so sentences read straight through.
+- **Acronyms expanded**: the document teaches the tool its own glossary. When it writes "water holding capacity (WHC)", every later "WHC" becomes "water holding capacity". No configuration; it learns from the text.
+- **Reference list dropped** along with journal furniture (DOIs, copyright and publisher notices, running headers).
+
+Featherpress also recovers word spacing from PDFs whose text layer jams words together, a common problem with journal PDFs, so `--simplify` on a downloaded paper usually gives a genuinely readable result. Caveat: some published PDFs contain more than one layer (for example a final version with a leftover peer-review draft underneath); those pages can come out duplicated, which is a defect in the source file rather than the conversion.
 
 ### Combining a series
 
@@ -111,7 +122,7 @@ Both use the exact same pipeline underneath; the terminal remains the power-user
 
 ## Version history
 
-Current version: **1.13.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
+Current version: **1.14.0**. The full history lives in [CHANGELOG.md](CHANGELOG.md)
 and is browsable in-app via the GUI's "Version history" button.
 `python featherpress.py --version` prints the version on the command line.
 
